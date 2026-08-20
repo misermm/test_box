@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+data/
+dist/
+build/
+*.spec
+*.exe
+_test_gui.py
+gui_test.txt
