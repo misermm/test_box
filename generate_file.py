@@ -112,71 +112,70 @@ def create_pdf_file(output_path, target_size):
     # PDF 文件头
     header = b"%PDF-1.4\n"
     
-    # 创建一个简单的PDF页面（A4大小）+ xref + trailer
-    # 这些内容放在文件末尾，确保结构有效
-    page_content = b"""1 0 obj
-<< /Type /Catalog /Pages 2 0 R >>
-endobj
-
-2 0 obj
-<< /Type /Pages /Kids [3 0 R] /Count 1 >>
-endobj
-
-3 0 obj
-<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << >> >>
-endobj
-
-4 0 obj
-<< /Length 44 >>
-stream
-BT /F1 12 Tf 100 700 Td (Test Page) Tj ET
-endstream
-endobj
-
-xref
-0 5
-0000000000 65535 f 
-"""
-    # 注意：xref偏移值需要在最后修正，这里先用占位符
-    page_content += b"0000000009 00000 n \n"
-    page_content += b"0000000058 00000 n \n"
-    page_content += b"0000000115 00000 n \n"
-    page_content += b"0000000266 00000 n \n"
+    # 各对象的内容（按顺序写入）
+    obj1 = b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+    obj2 = b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
+    obj3 = b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << >> >>\nendobj\n"
     
-    trailer = b"""
-trailer
-<< /Size 5 /Root 1 0 R >>
-startxref
-"""
-    trailer += b"360\n"
-    trailer += b"%%EOF\n"
+    # obj4 的stream内容（固定文本）和stream头尾模板
+    stream_content = b"BT /F1 12 Tf 100 700 Td (Test Page) Tj ET"
     
+    # 计算各部分偏移
     header_size = len(header)
-    page_size = len(page_content) + len(trailer)
-    filler_size = target_size - header_size - page_size
+    obj1_offset = header_size
+    obj2_offset = obj1_offset + len(obj1)
+    obj3_offset = obj2_offset + len(obj2)
     
-    # 如果目标太小，无法创建有效PDF
-    if filler_size < 0:
-        # 只写入最小有效PDF（无填充）
+    # obj4 头部固定部分： "4 0 obj\n<< /Length XXXXX >>\nstream\n"
+    # 先用占位长度计算偏移，后面再修正
+    obj4_header_template = b"4 0 obj\n<< /Length %d >>\nstream\n"
+    obj4_footer = b"\nendstream\nendobj\n"
+    
+    # xref + trailer 大约需要 200 字节
+    # obj4 头部大小：用较大长度估算（100000000 是 9 位数）
+    obj4_header_approx = len(b"4 0 obj\n<< /Length 100000000 >>\nstream\n")
+    
+    # 填充数据大小 = 目标大小 - 头部 - obj1-3 - obj4头尾近似 - stream内容 - xref/trailer
+    fixed_overhead = header_size + len(obj1) + len(obj2) + len(obj3)
+    fixed_overhead += obj4_header_approx + len(stream_content) + len(obj4_footer)
+    fixed_overhead += 200  # xref + trailer
+    
+    filler_size = target_size - fixed_overhead
+    
+    # 如果目标太小，创建最小有效PDF（无填充）
+    if filler_size <= 0:
+        obj4 = b"4 0 obj\n<< /Length %d >>\nstream\n" % len(stream_content)
+        obj4 += stream_content
+        obj4 += b"\nendstream\nendobj\n"
+        obj4_offset = obj3_offset + len(obj3)
+        
         with open(output_path, 'wb') as f:
-            f.write(header + page_content + trailer)
+            f.write(header + obj1 + obj2 + obj3 + obj4)
+            xref_offset = f.tell()
+            f.write(b"xref\n0 5\n")
+            f.write(b"0000000000 65535 f \n")
+            for off in [obj1_offset, obj2_offset, obj3_offset, obj4_offset]:
+                f.write(("%010d 00000 n \n" % off).encode())
+            f.write(b"trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n")
+            f.write(("%d\n" % xref_offset).encode())
+            f.write(b"%%EOF\n")
         return
+    
+    # 计算精确的obj4头部大小（填充数据字节数的位数）
+    obj4_header = obj4_header_template % (len(stream_content) + filler_size)
+    obj4_offset = obj3_offset + len(obj3)
     
     with open(output_path, 'wb') as f:
         f.write(header)
+        f.write(obj1)
+        f.write(obj2)
+        f.write(obj3)
         
-        # 写入填充数据（作为PDF stream对象）
-        # 创建一个填充对象，使其成为有效的PDF结构
-        filler_obj_header = b"5 0 obj\n<< /Length " + str(filler_size).encode() + b" >>\nstream\n"
-        filler_obj_footer = b"\nendstream\nendobj\n"
+        # 写入 obj4 头部
+        f.write(obj4_header)
         
-        # 计算各部分偏移
-        obj1_offset = header_size
-        obj2_offset = header_size + len(f"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\n")
-        
-        # 写入填充对象头
-        f.write(filler_obj_header)
-        filler_start = f.tell()
+        # 写入 stream 内容（固定文本）
+        f.write(stream_content)
         
         # 写入填充数据
         chunk_size = 1024 * 1024  # 1MB
@@ -190,18 +189,20 @@ startxref
             progress = min(100, (bytes_written / filler_size) * 100)
             print(f"\r进度: {progress:.1f}%", end="", flush=True)
         
-        # 写入填充对象尾
-        f.write(filler_obj_footer)
+        # 写入 obj4 尾部
+        f.write(obj4_footer)
         
-        # 计算xref偏移（填充对象后的偏移）
+        # xref表
         xref_offset = f.tell()
+        f.write(b"xref\n0 5\n")
+        f.write(b"0000000000 65535 f \n")
+        for off in [obj1_offset, obj2_offset, obj3_offset, obj4_offset]:
+            f.write(("%010d 00000 n \n" % off).encode())
         
-        # 写入页面内容和trailer
-        f.write(page_content)
-        
-        # 修正xref偏移（简化处理，使用固定偏移）
-        # 注意：这里xref偏移值是近似的，但对于大文件影响很小
-        f.write(trailer)
+        # trailer
+        f.write(b"trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n")
+        f.write(("%d\n" % xref_offset).encode())
+        f.write(b"%%EOF\n")
     
     print()
 
