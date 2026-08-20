@@ -2,9 +2,12 @@ __pycache__/
 *.pyc
 *.pyo
 data/
-dist/
 build/
 *.spec
-*.exe
 _test_gui.py
 gui_test.txt
+
+# 保留dist目录下的exe文件
+!dist/
+dist/*
+!dist/*.exe
