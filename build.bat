@@ -1,34 +1,32 @@
 @echo off
-chcp 65001 >nul
-setlocal enabledelayedexpansion
+cd /d "%~dp0"
 
 echo ========================================
-echo        打包测试工具箱
+echo        Build Test Toolbox
 echo ========================================
 echo.
 
-echo [1/3] 清理旧文件...
+echo [1/3] Cleaning old files...
 if exist build rmdir /s /q build
-if exist *.spec del /q *.spec
+del /q *.spec 2>nul
 
-echo [2/3] 开始打包...
-python -m PyInstaller --onefile --noconsole --name "测试工具箱" --collect-all PIL toolbox.py
+echo [2/3] Building exe...
+python -m PyInstaller --onefile --noconsole --name "TestToolbox" --collect-all PIL toolbox.py
 
-if %ERRORLEVEL% neq 0 (
-    echo.
-    echo 打包失败！请检查错误信息。
+if %ERRORLEVEL% ne 0 (
+    echo Build failed!
     pause
     exit /b 1
 )
 
-echo [3/3] 清理临时文件...
+echo [3/3] Cleaning temp files...
 if exist build rmdir /s /q build
-if exist *.spec del /q *.spec
+del /q *.spec 2>nul
 
 echo.
 echo ========================================
-echo 打包完成！
-echo 输出文件: dist\测试工具箱.exe
+echo Build complete!
+echo Output: dist\TestToolbox.exe
 echo ========================================
 echo.
 

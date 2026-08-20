@@ -1,36 +1,35 @@
-# 打包测试工具箱为exe文件
+# Build Test Toolbox
 $ErrorActionPreference = "Stop"
+Set-Location $PSScriptRoot
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "       打包测试工具箱" -ForegroundColor Cyan
+Write-Host "       Build Test Toolbox" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+Write-Host "[1/3] Cleaning old files..." -ForegroundColor Yellow
+if (Test-Path "build") { Remove-Item -Recurse -Force "build" }
+Get-ChildItem "*.spec" -ErrorAction SilentlyContinue | Remove-Item -Force
 
-Write-Host "[1/3] 清理旧文件..." -ForegroundColor Yellow
-if (Test-Path "$ScriptDir\build") { Remove-Item -Recurse -Force "$ScriptDir\build" }
-Get-ChildItem "$ScriptDir\*.spec" -ErrorAction SilentlyContinue | Remove-Item -Force
-
-Write-Host "[2/3] 开始打包..." -ForegroundColor Yellow
-& python -m PyInstaller --onefile --noconsole --name "测试工具箱" --collect-all PIL "$ScriptDir\toolbox.py"
+Write-Host "[2/3] Building exe..." -ForegroundColor Yellow
+& python -m PyInstaller --onefile --noconsole --name "TestToolbox" --collect-all PIL toolbox.py
 
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "打包失败！" -ForegroundColor Red
-    Read-Host "按Enter键退出"
+    Write-Host "Build failed!" -ForegroundColor Red
+    Read-Host "Press Enter to exit"
     exit 1
 }
 
-Write-Host "[3/3] 清理临时文件..." -ForegroundColor Yellow
-if (Test-Path "$ScriptDir\build") { Remove-Item -Recurse -Force "$ScriptDir\build" }
-Get-ChildItem "$ScriptDir\*.spec" -ErrorAction SilentlyContinue | Remove-Item -Force
+Write-Host "[3/3] Cleaning temp files..." -ForegroundColor Yellow
+if (Test-Path "build") { Remove-Item -Recurse -Force "build" }
+Get-ChildItem "*.spec" -ErrorAction SilentlyContinue | Remove-Item -Force
 
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Green
-Write-Host "打包完成！" -ForegroundColor Green
-Write-Host "输出文件: dist\测试工具箱.exe" -ForegroundColor Green
+Write-Host "Build complete!" -ForegroundColor Green
+Write-Host "Output: dist\TestToolbox.exe" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 
-Explorer "$ScriptDir\dist"
-Read-Host "按Enter键退出"
+Explorer "dist"
+Read-Host "Press Enter to exit"
