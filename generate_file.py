@@ -92,11 +92,12 @@ def create_plain_file(output_path, target_size):
     
     with open(output_path, 'wb') as f:
         while bytes_written < target_size:
-            # 写入1MB的随机数据
-            data = os.urandom(chunk_size)
+            # 写入1MB的随机数据（最后一块截断到剩余字节数）
+            remaining = target_size - bytes_written
+            data = os.urandom(min(chunk_size, remaining))
             f.write(data)
             
-            bytes_written += chunk_size
+            bytes_written += len(data)
             
             # 显示进度
             progress = min(100, (bytes_written / target_size) * 100)

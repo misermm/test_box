@@ -51,6 +51,9 @@ AREA_CODES = [
 
 def generate_birth_date(age, as_of_date=None):
     """根据年龄生成出生日期"""
+    if not isinstance(age, int) or age < 1:
+        raise ValueError("年龄必须是大于0的整数")
+    
     if as_of_date is None:
         as_of_date = datetime.now()
     

@@ -32,6 +32,9 @@ def split_to_zip(input_file, output_dir, max_size_mb, prefix="part"):
         print(f"错误: 文件不存在 - {input_file}")
         return False
     
+    # 确保输出目录存在
+    os.makedirs(output_dir, exist_ok=True)
+    
     # 获取文件信息
     file_size_mb = get_file_size_mb(input_file)
     file_name = os.path.basename(input_file)
@@ -105,10 +108,13 @@ def merge_zip_files(zip_files, output_file):
     """
     import glob
     
-    # 展开glob模式
+    # 展开glob模式（对已存在的精确路径直接使用，避免特殊字符被当作模式解析）
     expanded_files = []
     for pattern in zip_files:
-        expanded_files.extend(glob.glob(pattern))
+        if os.path.isfile(pattern):
+            expanded_files.append(pattern)
+        else:
+            expanded_files.extend(glob.glob(pattern))
     
     if not expanded_files:
         print("错误: 没有找到匹配的ZIP文件")
