@@ -16,6 +16,8 @@ from generate_file import create_file
 from generate_text import generate_text, TEXT_TYPES
 from generate_person import generate_person, generate_id_card, generate_name, generate_phone
 from url_codec import url_encode, url_decode
+from http_client import send_request, parse_headers, format_response
+from json_fmt import json_format, json_compact
 
 APP_NAME = "测试工具箱"
 APP_VERSION = "1.0.0"
@@ -77,6 +79,7 @@ class ToolboxApp(tk.Tk):
         self._gen_out_var = tk.StringVar(value=DEFAULT_DATA)
         self._text_len_var = tk.StringVar(value="100")
         self._text_type_var = tk.StringVar(value="汉字+英文+中英文标点")
+        self._http_url_var = tk.StringVar()
 
         self._build_ui()
         self._select_menu(0)
@@ -95,7 +98,7 @@ class ToolboxApp(tk.Tk):
             selectbackground="#1abc9c", font=("Microsoft YaHei UI", 11),
             activestyle="none",
         )
-        for item in ["图片转 PDF", "图片批量转ZIP", "文件分割", "文件合并", "生成指定大小文件", "生成指定长度文本", "随机人员信息", "URL编码解码", "关于"]:
+        for item in ["图片转 PDF", "图片批量转ZIP", "文件分割", "文件合并", "生成指定大小文件", "生成指定长度文本", "随机人员信息", "URL编码解码", "接口请求", "JSON格式化", "关于"]:
             self.menu_list.insert("end", item)
         self.menu_list.pack(fill="both", expand=True, padx=8, pady=8)
         self.menu_list.bind("<<ListboxSelect>>", self._on_menu_select)
@@ -152,6 +155,10 @@ class ToolboxApp(tk.Tk):
             self._show_page_person()
         elif index == 7:
             self._show_page_url()
+        elif index == 8:
+            self._show_page_http()
+        elif index == 9:
+            self._show_page_json()
         else:
             self._show_page_about()
 
@@ -764,7 +771,140 @@ class ToolboxApp(tk.Tk):
         self._url_input.delete("1.0", "end")
         self._url_output.delete("1.0", "end")
 
-    # =============== 页面9: 关于 ===============
+    # =============== 页面9: 接口请求 ===============
+    def _show_page_http(self):
+        self.title_label.config(text="接口请求")
+        self._label(self.content, "发送 GET / POST 请求，查看响应状态、头和内容。").pack(anchor="w", pady=(0, 8))
+
+        r1 = self._row(self.content)
+        self._label(r1, "方法:").pack(side="left")
+        self._http_method_var = tk.StringVar(value="GET")
+        ttk.Combobox(r1, textvariable=self._http_method_var, state="readonly",
+                     values=["GET", "POST"], width=6).pack(side="left", padx=(4, 10))
+        self._label(r1, "URL:").pack(side="left")
+        tk.Entry(r1, textvariable=self._http_url_var).pack(
+            side="left", padx=4, fill="x", expand=True)
+
+        tk.Label(self.content, text="请求头 (每行 Key: Value，可空):", bg="#f5f6fa",
+                 font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(4, 2))
+        self._http_headers_text = tk.Text(self.content, height=4, font=("Consolas", 10),
+                                          wrap="word", bg="white")
+        self._http_headers_text.pack(fill="x")
+
+        tk.Label(self.content, text="请求体 (POST时使用，可空):", bg="#f5f6fa",
+                 font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(4, 2))
+        self._http_body_text = tk.Text(self.content, height=4, font=("Consolas", 10),
+                                       wrap="word", bg="white")
+        self._http_body_text.pack(fill="x")
+
+        btn_row = self._row(self.content)
+        tk.Button(btn_row, text="发送请求", command=self._http_run,
+                  bg="#1abc9c", fg="white",
+                  font=("Microsoft YaHei UI", 11, "bold"), width=14).pack(pady=6)
+        tk.Button(btn_row, text="清空响应", command=self._http_clear, width=10).pack(side="left", padx=(10, 0))
+
+        tk.Label(self.content, text="响应:", bg="#f5f6fa",
+                 font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(4, 3))
+        self._http_output = tk.Text(self.content, height=10, font=("Consolas", 10),
+                                    wrap="word", bg="white")
+        self._http_output.pack(fill="both", expand=True)
+
+    def _http_run(self):
+        url = self._http_url_var.get().strip()
+        if not url:
+            messagebox.showwarning("提示", "请输入URL")
+            return
+        method = self._http_method_var.get()
+        headers_raw = self._http_headers_text.get("1.0", "end-1c")
+        body = self._http_body_text.get("1.0", "end-1c").strip() or None
+        try:
+            headers = parse_headers(headers_raw) if headers_raw else None
+        except ValueError as e:
+            messagebox.showwarning("提示", str(e))
+            return
+        self._start_task(self._http_send, method, url, headers, body,
+                         on_done=self._http_done)
+
+    def _http_send(self, method, url, headers, body):
+        resp = send_request(method, url, headers=headers, body=body)
+        return format_response(resp)
+
+    def _http_done(self, result):
+        if result is None:
+            self._log_result_banner(False)
+            return
+        self._http_output.delete("1.0", "end")
+        self._http_output.insert("1.0", result)
+        self._log_result_banner(True)
+
+    def _http_clear(self):
+        self._http_output.delete("1.0", "end")
+
+    # =============== 页面10: JSON格式化 ===============
+    def _show_page_json(self):
+        self.title_label.config(text="JSON格式化")
+        self._label(self.content, "输入 JSON 文本，格式化为可读缩进形式或压缩为一行字符串。").pack(anchor="w", pady=(0, 8))
+
+        tk.Label(self.content, text="输入:", bg="#f5f6fa",
+                 font=("Microsoft YaHei UI", 10)).pack(anchor="w")
+        self._json_input = tk.Text(self.content, height=8, font=("Consolas", 10),
+                                   wrap="word", bg="white")
+        self._json_input.pack(fill="both", expand=True)
+
+        btn_row = self._row(self.content)
+        tk.Button(btn_row, text="格式化", command=lambda: self._json_run("format"),
+                  bg="#1abc9c", fg="white",
+                  font=("Microsoft YaHei UI", 11, "bold"), width=12).pack(side="left", pady=6)
+        tk.Button(btn_row, text="压缩为字符串", command=lambda: self._json_run("compact"),
+                  bg="#3498db", fg="white",
+                  font=("Microsoft YaHei UI", 11, "bold"), width=14).pack(side="left", padx=(10, 0))
+        tk.Button(btn_row, text="复制结果", command=self._json_copy, width=10).pack(side="left", padx=(10, 0))
+        tk.Button(btn_row, text="清空", command=self._json_clear, width=8).pack(side="left", padx=(10, 0))
+
+        tk.Label(self.content, text="结果:", bg="#f5f6fa",
+                 font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(4, 3))
+        self._json_output = tk.Text(self.content, height=8, font=("Consolas", 10),
+                                    wrap="word", bg="white")
+        self._json_output.pack(fill="both", expand=True)
+
+    def _json_run(self, mode):
+        text = self._json_input.get("1.0", "end-1c")
+        if not text:
+            messagebox.showwarning("提示", "请输入JSON内容")
+            return
+        self._start_task(self._json_convert, text, mode,
+                         on_done=self._json_done)
+
+    def _json_convert(self, text, mode):
+        if mode == "format":
+            result = json_format(text)
+        else:
+            result = json_compact(text)
+        print(f"JSON处理完成（{mode}）")
+        return result
+
+    def _json_done(self, result):
+        if result is None:
+            self._log_result_banner(False)
+            return
+        self._json_output.delete("1.0", "end")
+        self._json_output.insert("1.0", result)
+        self._log_result_banner(True)
+
+    def _json_copy(self):
+        text = self._json_output.get("1.0", "end-1c")
+        if not text:
+            messagebox.showwarning("提示", "没有可复制的内容")
+            return
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        messagebox.showinfo("提示", "已复制到剪贴板")
+
+    def _json_clear(self):
+        self._json_input.delete("1.0", "end")
+        self._json_output.delete("1.0", "end")
+
+    # =============== 页面11: 关于 ===============
     def _show_page_about(self):
         self.title_label.config(text="关于")
         info = (
@@ -777,7 +917,9 @@ class ToolboxApp(tk.Tk):
             "  5. 生成指定大小文件 - 生成任意大小和格式的文件\n"
             "  6. 生成指定长度文本 - 生成指定长度类型的随机文本\n"
             "  7. 随机人员信息 - 生成随机身份证号、姓名、手机号等\n"
-            "  8. URL编码解码 - 文本的URL百分号编码与解码\n\n"
+            "  8. URL编码解码 - 文本的URL百分号编码与解码\n"
+            "  9. 接口请求 - 发送GET/POST请求查看响应\n"
+            "  10. JSON格式化 - JSON美化/压缩为字符串\n\n"
             "使用方法:\n"
             "  左侧选择功能，右侧填写参数后点击开始按钮。\n"
         )
