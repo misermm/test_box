@@ -119,7 +119,8 @@ def main():
             print(f"错误: 输入文件不存在 - {args.input_file}")
             sys.exit(1)
         
-        with open(args.input_file, 'r', encoding='utf-8') as f:
+        # utf-8-sig 兼容带 BOM 的文件（如 Windows 记事本保存的 UTF-8）
+        with open(args.input_file, 'r', encoding='utf-8-sig') as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith('#'):  # 忽略空行和注释
@@ -142,7 +143,8 @@ def main():
                     expanded_paths.extend(Path(path).rglob(ext))
             else:
                 expanded_paths.append(path)
-        image_paths = [str(p) for p in expanded_paths]
+        # 大小写不敏感排序，保证页序稳定且符合直觉
+        image_paths = sorted((str(p) for p in expanded_paths), key=str.lower)
     
     # 合并图片到PDF
     success = merge_images_to_pdf(image_paths, args.output)

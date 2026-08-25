@@ -49,7 +49,7 @@ def split_to_zip(input_file, output_dir, max_size_mb, prefix="part"):
         print(f"\n文件小于目标大小，直接创建ZIP文件...")
         
         with zipfile.ZipFile(output_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            zipf.write(input_file, file_name)
+            zipf.write(input_file, f"{file_name}.part1")
         
         final_size = get_file_size_mb(output_file)
         print(f"创建成功: {output_file}")
@@ -126,15 +126,21 @@ def merge_zip_files(zip_files, output_file):
     for zip_file in sorted(expanded_files):
         print(f"读取: {zip_file}")
         with zipfile.ZipFile(zip_file, 'r') as zipf:
-            for name in zipf.namelist():
+            names = zipf.namelist()
+            found_part = False
+            for name in names:
                 # 从文件名提取部分号
                 if '.part' in name:
                     part_str = name.split('.part')[-1]
                     try:
                         part_num = int(part_str)
                         all_data[part_num] = zipf.read(name)
+                        found_part = True
                     except ValueError:
                         continue
+            if not found_part and names:
+                # 兼容旧版: 文件小于分片大小时生成的单文件ZIP（无.part后缀）
+                all_data[1] = zipf.read(names[0])
     
     if not all_data:
         print("错误: 没有找到可合并的数据")
