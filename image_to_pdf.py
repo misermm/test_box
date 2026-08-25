@@ -6,8 +6,76 @@
 
 import os
 import sys
+import io
+import zipfile
 import argparse
 from pathlib import Path
+
+def _filter_valid_images(image_paths):
+    """过滤出存在的图片文件路径"""
+    valid_images = []
+    for img_path in image_paths:
+        if not os.path.exists(img_path):
+            print(f"警告: 文件不存在，已跳过 - {img_path}")
+            continue
+        if not os.path.isfile(img_path):
+            print(f"警告: 不是文件，已跳过 - {img_path}")
+            continue
+        valid_images.append(img_path)
+    return valid_images
+
+
+def convert_images_to_zip(image_paths, output_zip_path):
+    """
+    将每张图片各自转换成一个单页PDF，打包进一个ZIP文件
+
+    参数:
+        image_paths: 图片文件路径列表
+        output_zip_path: 输出ZIP文件路径
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        print("错误: 需要安装 Pillow 库。请运行: pip install Pillow")
+        sys.exit(1)
+
+    valid_images = _filter_valid_images(image_paths)
+
+    if not valid_images:
+        print("错误: 没有有效的图片文件")
+        return False
+
+    os.makedirs(os.path.dirname(os.path.abspath(output_zip_path)), exist_ok=True)
+
+    try:
+        used_names = set()
+        with zipfile.ZipFile(output_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for i, img_path in enumerate(valid_images, 1):
+                img = Image.open(img_path)
+                # 转换为RGB模式（确保兼容性）
+                if img.mode != 'RGB':
+                    img = img.convert('RGB')
+                buf = io.BytesIO()
+                img.save(buf, "PDF", resolution=100.0)
+                img.close()
+
+                # ZIP内文件名与图片同名；重名时加序号前缀避免覆盖
+                base = os.path.splitext(os.path.basename(img_path))[0]
+                name = f"{base}.pdf"
+                if name.lower() in used_names:
+                    name = f"{i:03d}_{base}.pdf"
+                used_names.add(name.lower())
+
+                zipf.writestr(name, buf.getvalue())
+                print(f"已转换: {img_path} -> {name}")
+
+        print(f"\n成功创建ZIP文件: {output_zip_path}")
+        print(f"包含 {len(valid_images)} 个PDF")
+        return True
+
+    except Exception as e:
+        print(f"创建ZIP时出错: {e}")
+        return False
 
 def merge_images_to_pdf(image_paths, output_pdf_path):
     """
@@ -24,15 +92,7 @@ def merge_images_to_pdf(image_paths, output_pdf_path):
         sys.exit(1)
     
     # 验证所有图片文件是否存在
-    valid_images = []
-    for img_path in image_paths:
-        if not os.path.exists(img_path):
-            print(f"警告: 文件不存在，已跳过 - {img_path}")
-            continue
-        if not os.path.isfile(img_path):
-            print(f"警告: 不是文件，已跳过 - {img_path}")
-            continue
-        valid_images.append(img_path)
+    valid_images = _filter_valid_images(image_paths)
     
     if not valid_images:
         print("错误: 没有有效的图片文件")
@@ -103,6 +163,12 @@ def main():
         action='store_true',
         help='递归搜索子目录中的图片文件'
     )
+
+    parser.add_argument(
+        '-z', '--zip',
+        action='store_true',
+        help='每张图片单独转成一个PDF，打包为一个ZIP文件'
+    )
     
     args = parser.parse_args()
     
@@ -146,8 +212,11 @@ def main():
         # 大小写不敏感排序，保证页序稳定且符合直觉
         image_paths = sorted((str(p) for p in expanded_paths), key=str.lower)
     
-    # 合并图片到PDF
-    success = merge_images_to_pdf(image_paths, args.output)
+    # 转换图片
+    if args.zip:
+        success = convert_images_to_zip(image_paths, args.output)
+    else:
+        success = merge_images_to_pdf(image_paths, args.output)
     
     if not success:
         sys.exit(1)

@@ -10,7 +10,7 @@ import contextlib
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
-from image_to_pdf import merge_images_to_pdf
+from image_to_pdf import merge_images_to_pdf, convert_images_to_zip
 from file_splitter import split_to_zip, merge_zip_files
 from generate_file import create_file
 from generate_text import generate_text, TEXT_TYPES
@@ -63,6 +63,8 @@ class ToolboxApp(tk.Tk):
         DEFAULT_DATA = r"C:\work\ai\picture_to_pdf\data"
         self._pdf_images = []
         self._pdf_out_var = tk.StringVar(value=DEFAULT_DATA)
+        self._zip_images = []
+        self._zip_out_var = tk.StringVar(value=DEFAULT_DATA)
         self._split_in_var = tk.StringVar()
         self._split_size_var = tk.StringVar(value="101")
         self._split_out_var = tk.StringVar(value=DEFAULT_DATA)
@@ -92,7 +94,7 @@ class ToolboxApp(tk.Tk):
             selectbackground="#1abc9c", font=("Microsoft YaHei UI", 11),
             activestyle="none",
         )
-        for item in ["图片转 PDF", "文件分割", "文件合并", "生成指定大小文件", "生成指定长度文本", "随机人员信息", "关于"]:
+        for item in ["图片转 PDF", "图片批量转ZIP", "文件分割", "文件合并", "生成指定大小文件", "生成指定长度文本", "随机人员信息", "关于"]:
             self.menu_list.insert("end", item)
         self.menu_list.pack(fill="both", expand=True, padx=8, pady=8)
         self.menu_list.bind("<<ListboxSelect>>", self._on_menu_select)
@@ -114,6 +116,10 @@ class ToolboxApp(tk.Tk):
         self.log = tk.Text(self.log_frame, height=8, bg="#2d3436", fg="#b2bec3",
                            font=("Consolas", 9), state="disabled", wrap="word")
         self.log.pack(fill="both", expand=True, padx=5, pady=5)
+        self.log.tag_config("ok", foreground="#2ecc71",
+                            font=("Microsoft YaHei UI", 12, "bold"))
+        self.log.tag_config("err", foreground="#e74c3c",
+                            font=("Microsoft YaHei UI", 12, "bold"))
 
     # ---------------- 菜单切换 ----------------
     def _on_menu_select(self, _event=None):
@@ -132,14 +138,16 @@ class ToolboxApp(tk.Tk):
         if index == 0:
             self._show_page_pdf()
         elif index == 1:
-            self._show_page_split()
+            self._show_page_zip()
         elif index == 2:
-            self._show_page_merge()
+            self._show_page_split()
         elif index == 3:
-            self._show_page_generate()
+            self._show_page_merge()
         elif index == 4:
-            self._show_page_text()
+            self._show_page_generate()
         elif index == 5:
+            self._show_page_text()
+        elif index == 6:
             self._show_page_person()
         else:
             self._show_page_about()
@@ -215,11 +223,17 @@ class ToolboxApp(tk.Tk):
         if self._on_done:
             self._on_done(result)
 
+    def _log_result_banner(self, ok):
+        tag = "ok" if ok else "err"
+        mark = "√" * 8 if ok else "×" * 8
+        text = f" 任务完成 " if ok else " 任务失败 "
+        self.log.config(state="normal")
+        self.log.insert("end", f"\n{mark}{text}{mark}\n\n", tag)
+        self.log.see("end")
+        self.log.config(state="disabled")
+
     def _on_done_success(self, result):
-        if result:
-            messagebox.showinfo("完成", "操作完成！")
-        else:
-            messagebox.showerror("失败", "操作失败，请查看日志")
+        self._log_result_banner(bool(result))
 
     # ---------------- 通用控件 ----------------
     def _label(self, parent, text):
@@ -294,7 +308,70 @@ class ToolboxApp(tk.Tk):
         self._start_task(merge_images_to_pdf, list(self._pdf_images), out,
                          on_done=self._on_done_success)
 
-    # =============== 页面2: 文件分割 ===============
+    # =============== 页面2: 图片批量转ZIP ===============
+    def _show_page_zip(self):
+        self.title_label.config(text="图片批量转 ZIP")
+
+        self._label(self.content, "每张图片单独转换为一个 PDF，全部打包到一个 ZIP 压缩包中。").pack(anchor="w", pady=(0, 8))
+
+        list_frame = tk.Frame(self.content, bg="#f5f6fa")
+        list_frame.pack(fill="both", expand=True)
+
+        self._zip_listbox = tk.Listbox(list_frame, font=("Microsoft YaHei UI", 10))
+        self._zip_listbox.pack(side="left", fill="both", expand=True)
+
+        btn_frame = tk.Frame(list_frame, bg="#f5f6fa")
+        btn_frame.pack(side="left", fill="y", padx=(10, 0))
+        tk.Button(btn_frame, text="添加图片", command=self._zip_add, width=12).pack(pady=3)
+        tk.Button(btn_frame, text="移除选中", command=self._zip_remove, width=12).pack(pady=3)
+        tk.Button(btn_frame, text="清空列表", command=self._zip_clear, width=12).pack(pady=3)
+
+        out_row = self._row(self.content)
+        self._label(out_row, "输出路径:").pack(side="left")
+        tk.Entry(out_row, textvariable=self._zip_out_var).pack(
+            side="left", padx=8, fill="x", expand=True)
+        tk.Button(out_row, text="浏览", command=self._zip_choose_out).pack(side="left")
+
+        btn_row = self._row(self.content)
+        tk.Button(btn_row, text="开始转换", command=self._zip_convert,
+                  bg="#1abc9c", fg="white",
+                  font=("Microsoft YaHei UI", 11, "bold"), width=18).pack(pady=(6, 0))
+
+    def _zip_add(self):
+        files = filedialog.askopenfilenames(title="选择图片", filetypes=IMAGE_EXTS)
+        for f in files:
+            self._zip_images.append(f)
+            self._zip_listbox.insert("end", os.path.basename(f))
+
+    def _zip_remove(self):
+        sel = self._zip_listbox.curselection()
+        for i in reversed(sel):
+            self._zip_listbox.delete(i)
+            del self._zip_images[i]
+
+    def _zip_clear(self):
+        self._zip_listbox.delete(0, "end")
+        self._zip_images.clear()
+
+    def _zip_choose_out(self):
+        d = filedialog.askdirectory(title="选择输出目录")
+        if d:
+            self._zip_out_var.set(d)
+
+    def _zip_convert(self):
+        if not self._zip_images:
+            messagebox.showwarning("提示", "请先添加图片")
+            return
+        out_dir = self._zip_out_var.get().strip()
+        if not out_dir:
+            messagebox.showwarning("提示", "请设置输出路径")
+            return
+        os.makedirs(out_dir, exist_ok=True)
+        out = os.path.join(out_dir, "images_pdfs.zip")
+        self._start_task(convert_images_to_zip, list(self._zip_images), out,
+                         on_done=self._on_done_success)
+
+    # =============== 页面3: 文件分割 ===============
     def _show_page_split(self):
         self.title_label.config(text="文件分割")
         self._label(self.content, "将一个文件按指定大小分割为多个 ZIP 文件。").pack(anchor="w", pady=(0, 8))
@@ -351,7 +428,7 @@ class ToolboxApp(tk.Tk):
                          self._split_prefix_var.get() or "part",
                          on_done=self._on_done_success)
 
-    # =============== 页面3: 文件合并 ===============
+    # =============== 页面4: 文件合并 ===============
     def _show_page_merge(self):
         self.title_label.config(text="文件合并")
 
@@ -413,7 +490,7 @@ class ToolboxApp(tk.Tk):
         self._start_task(merge_zip_files, list(self._merge_files), out,
                          on_done=self._on_done_success)
 
-    # =============== 页面4: 生成指定大小文件 ===============
+    # =============== 页面5: 生成指定大小文件 ===============
     def _show_page_generate(self):
         self.title_label.config(text="生成指定大小文件")
         self._label(self.content, "生成指定大小和格式的文件（如 101MB 的 ZIP 文件）。").pack(anchor="w", pady=(0, 8))
@@ -463,7 +540,7 @@ class ToolboxApp(tk.Tk):
         self._start_task(create_file, out_file, size, ftype,
                          on_done=self._on_done_success)
 
-    # =============== 页面5: 生成指定长度文本 ===============
+    # =============== 页面6: 生成指定长度文本 ===============
     def _show_page_text(self):
         self.title_label.config(text="生成指定长度文本")
         self._label(self.content, "输入长度和类型，生成对应长度的随机文本（可保存为txt）。").pack(anchor="w", pady=(0, 8))
@@ -516,7 +593,7 @@ class ToolboxApp(tk.Tk):
             self._text_result.insert("1.0", result)
         else:
             self._text_result.delete("1.0", "end")
-            messagebox.showerror("失败", "生成失败")
+            self._log_result_banner(False)
 
     def _text_copy(self):
         text = self._text_result.get("1.0", "end-1c")
@@ -527,7 +604,7 @@ class ToolboxApp(tk.Tk):
         self.clipboard_append(text)
         messagebox.showinfo("提示", "已复制到剪贴板")
 
-    # =============== 页面6: 随机人员信息 ===============
+    # =============== 页面7: 随机人员信息 ===============
     def _show_page_person(self):
         self.title_label.config(text="随机人员信息")
         self._label(self.content, "根据输入的年龄和性别，生成随机人员信息（身份证号、姓名、手机号等）。").pack(anchor="w", pady=(0, 8))
@@ -609,7 +686,7 @@ class ToolboxApp(tk.Tk):
             self._person_result.insert("1.0", result)
         else:
             self._person_result.delete("1.0", "end")
-            messagebox.showerror("失败", "生成失败")
+            self._log_result_banner(False)
 
     def _person_copy(self):
         text = self._person_result.get("1.0", "end-1c")
@@ -620,18 +697,19 @@ class ToolboxApp(tk.Tk):
         self.clipboard_append(text)
         messagebox.showinfo("提示", "已复制到剪贴板")
 
-    # =============== 页面7: 关于 ===============
+    # =============== 页面8: 关于 ===============
     def _show_page_about(self):
         self.title_label.config(text="关于")
         info = (
             f"{APP_NAME} v{APP_VERSION}\n\n"
             "功能列表:\n"
             "  1. 图片转 PDF - 将多张图片合并为一个PDF\n"
-            "  2. 文件分割 - 按大小分割为多个ZIP\n"
-            "  3. 文件合并 - 还原分割的ZIP文件\n"
-            "  4. 生成指定大小文件 - 生成任意大小和格式的文件\n"
-            "  5. 生成指定长度文本 - 生成指定长度类型的随机文本\n"
-            "  6. 随机人员信息 - 生成随机身份证号、姓名、手机号等\n\n"
+            "  2. 图片批量转 ZIP - 每张图片单独转PDF并打包为ZIP\n"
+            "  3. 文件分割 - 按大小分割为多个ZIP\n"
+            "  4. 文件合并 - 还原分割的ZIP文件\n"
+            "  5. 生成指定大小文件 - 生成任意大小和格式的文件\n"
+            "  6. 生成指定长度文本 - 生成指定长度类型的随机文本\n"
+            "  7. 随机人员信息 - 生成随机身份证号、姓名、手机号等\n\n"
             "使用方法:\n"
             "  左侧选择功能，右侧填写参数后点击开始按钮。\n"
         )
