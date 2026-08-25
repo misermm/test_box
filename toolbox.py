@@ -15,6 +15,7 @@ from file_splitter import split_to_zip, merge_zip_files
 from generate_file import create_file
 from generate_text import generate_text, TEXT_TYPES
 from generate_person import generate_person, generate_id_card, generate_name, generate_phone
+from url_codec import url_encode, url_decode
 
 APP_NAME = "测试工具箱"
 APP_VERSION = "1.0.0"
@@ -94,7 +95,7 @@ class ToolboxApp(tk.Tk):
             selectbackground="#1abc9c", font=("Microsoft YaHei UI", 11),
             activestyle="none",
         )
-        for item in ["图片转 PDF", "图片批量转ZIP", "文件分割", "文件合并", "生成指定大小文件", "生成指定长度文本", "随机人员信息", "关于"]:
+        for item in ["图片转 PDF", "图片批量转ZIP", "文件分割", "文件合并", "生成指定大小文件", "生成指定长度文本", "随机人员信息", "URL编码解码", "关于"]:
             self.menu_list.insert("end", item)
         self.menu_list.pack(fill="both", expand=True, padx=8, pady=8)
         self.menu_list.bind("<<ListboxSelect>>", self._on_menu_select)
@@ -149,6 +150,8 @@ class ToolboxApp(tk.Tk):
             self._show_page_text()
         elif index == 6:
             self._show_page_person()
+        elif index == 7:
+            self._show_page_url()
         else:
             self._show_page_about()
 
@@ -697,7 +700,71 @@ class ToolboxApp(tk.Tk):
         self.clipboard_append(text)
         messagebox.showinfo("提示", "已复制到剪贴板")
 
-    # =============== 页面8: 关于 ===============
+    # =============== 页面8: URL编码解码 ===============
+    def _show_page_url(self):
+        self.title_label.config(text="URL编码解码")
+        self._label(self.content, "对文本进行 URL 百分号编码/解码（UTF-8）。").pack(anchor="w", pady=(0, 8))
+
+        tk.Label(self.content, text="输入:", bg="#f5f6fa",
+                 font=("Microsoft YaHei UI", 10)).pack(anchor="w")
+        self._url_input = tk.Text(self.content, height=6, font=("Consolas", 10),
+                                  wrap="word", bg="white")
+        self._url_input.pack(fill="both", expand=True)
+
+        btn_row = self._row(self.content)
+        tk.Button(btn_row, text="编码", command=lambda: self._url_run(True),
+                  bg="#1abc9c", fg="white",
+                  font=("Microsoft YaHei UI", 11, "bold"), width=12).pack(side="left", pady=6)
+        tk.Button(btn_row, text="解码", command=lambda: self._url_run(False),
+                  bg="#3498db", fg="white",
+                  font=("Microsoft YaHei UI", 11, "bold"), width=12).pack(side="left", padx=(10, 0))
+        tk.Button(btn_row, text="复制结果", command=self._url_copy, width=12).pack(side="left", padx=(10, 0))
+        tk.Button(btn_row, text="清空", command=self._url_clear, width=10).pack(side="left", padx=(10, 0))
+
+        tk.Label(self.content, text="结果:", bg="#f5f6fa",
+                 font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(4, 3))
+        self._url_output = tk.Text(self.content, height=6, font=("Consolas", 10),
+                                   wrap="word", bg="white")
+        self._url_output.pack(fill="both", expand=True)
+
+    def _url_run(self, encode):
+        text = self._url_input.get("1.0", "end-1c")
+        if not text:
+            messagebox.showwarning("提示", "请输入内容")
+            return
+        self._start_task(self._url_convert, text, encode,
+                         on_done=self._url_done)
+
+    def _url_convert(self, text, encode):
+        if encode:
+            result = url_encode(text)
+        else:
+            result = url_decode(text)
+        print(f"{'编码' if encode else '解码'}完成，{len(text)} -> {len(result)} 字符")
+        return result
+
+    def _url_done(self, result):
+        if result is None:
+            self._log_result_banner(False)
+            return
+        self._url_output.delete("1.0", "end")
+        self._url_output.insert("1.0", result)
+        self._log_result_banner(True)
+
+    def _url_copy(self):
+        text = self._url_output.get("1.0", "end-1c")
+        if not text:
+            messagebox.showwarning("提示", "没有可复制的内容")
+            return
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        messagebox.showinfo("提示", "已复制到剪贴板")
+
+    def _url_clear(self):
+        self._url_input.delete("1.0", "end")
+        self._url_output.delete("1.0", "end")
+
+    # =============== 页面9: 关于 ===============
     def _show_page_about(self):
         self.title_label.config(text="关于")
         info = (
@@ -709,7 +776,8 @@ class ToolboxApp(tk.Tk):
             "  4. 文件合并 - 还原分割的ZIP文件\n"
             "  5. 生成指定大小文件 - 生成任意大小和格式的文件\n"
             "  6. 生成指定长度文本 - 生成指定长度类型的随机文本\n"
-            "  7. 随机人员信息 - 生成随机身份证号、姓名、手机号等\n\n"
+            "  7. 随机人员信息 - 生成随机身份证号、姓名、手机号等\n"
+            "  8. URL编码解码 - 文本的URL百分号编码与解码\n\n"
             "使用方法:\n"
             "  左侧选择功能，右侧填写参数后点击开始按钮。\n"
         )
