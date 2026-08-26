@@ -5,6 +5,7 @@
 """
 
 import os
+import json
 import threading
 import contextlib
 import tkinter as tk
@@ -17,7 +18,7 @@ from generate_text import generate_text, TEXT_TYPES
 from generate_person import generate_person, generate_id_card, generate_name, generate_phone
 from url_codec import url_encode, url_decode
 from http_client import send_request, parse_headers, format_response
-from json_fmt import json_format, json_compact
+from json_fmt import json_format, json_compact, json_sort, json_diff_spans
 
 APP_NAME = "测试工具箱"
 APP_VERSION = "1.0.0"
@@ -98,7 +99,7 @@ class ToolboxApp(tk.Tk):
             selectbackground="#1abc9c", font=("Microsoft YaHei UI", 11),
             activestyle="none",
         )
-        for item in ["图片转 PDF", "图片批量转ZIP", "文件分割", "文件合并", "生成指定大小文件", "生成指定长度文本", "随机人员信息", "URL编码解码", "接口请求", "JSON格式化", "关于"]:
+        for item in ["图片转 PDF", "图片批量转ZIP", "文件分割", "文件合并", "生成指定大小文件", "生成指定长度文本", "随机人员信息", "URL编码解码", "接口请求", "JSON格式化", "JSON对比", "关于"]:
             self.menu_list.insert("end", item)
         self.menu_list.pack(fill="both", expand=True, padx=8, pady=8)
         self.menu_list.bind("<<ListboxSelect>>", self._on_menu_select)
@@ -159,6 +160,8 @@ class ToolboxApp(tk.Tk):
             self._show_page_http()
         elif index == 9:
             self._show_page_json()
+        elif index == 10:
+            self._show_page_jsondiff()
         else:
             self._show_page_about()
 
@@ -231,7 +234,11 @@ class ToolboxApp(tk.Tk):
             result = None
         self._task_thread = None
         if self._on_done:
-            self._on_done(result)
+            try:
+                self._on_done(result)
+            except tk.TclError:
+                # 任务运行中用户切换了页面，回调涉及的控件已被销毁，忽略
+                pass
 
     def _log_result_banner(self, ok):
         tag = "ok" if ok else "err"
@@ -904,7 +911,98 @@ class ToolboxApp(tk.Tk):
         self._json_input.delete("1.0", "end")
         self._json_output.delete("1.0", "end")
 
-    # =============== 页面11: 关于 ===============
+    # =============== 页面11: JSON对比 ===============
+    def _show_page_jsondiff(self):
+        self.title_label.config(text="JSON对比")
+        self._label(self.content, "点击「排序后对比」：两框 JSON 按统一规则排序，"
+                                  "差异行橙色背景，差异字符红色字体。").pack(anchor="w", pady=(0, 8))
+
+        paned = tk.PanedWindow(self.content, orient="horizontal", sashwidth=5,
+                               bg="#f5f6fa")
+        paned.pack(fill="both", expand=True)
+
+        left = tk.Frame(paned, bg="#f5f6fa")
+        tk.Label(left, text="原始JSON:", bg="#f5f6fa",
+                 font=("Microsoft YaHei UI", 10)).pack(anchor="w")
+        self._jd_left = tk.Text(left, font=("Consolas", 10),
+                                wrap="word", bg="white")
+        self._jd_left.pack(fill="both", expand=True)
+
+        right = tk.Frame(paned, bg="#f5f6fa")
+        tk.Label(right, text="对比JSON:", bg="#f5f6fa",
+                 font=("Microsoft YaHei UI", 10)).pack(anchor="w")
+        self._jd_right = tk.Text(right, font=("Consolas", 10),
+                                 wrap="word", bg="white")
+        self._jd_right.pack(fill="both", expand=True)
+
+        paned.add(left, stretch="always")
+        paned.add(right, stretch="always")
+
+        # 输入框内标注标签
+        for w in (self._jd_left, self._jd_right):
+            w.tag_config("changed_bg", background="#ffeaa7")               # 淡橙色
+            w.tag_config("changed_fg", foreground="#d63031",
+                         font=("Consolas", 10, "bold"))                    # 红色加粗
+
+        btn_row = self._row(self.content)
+        tk.Button(btn_row, text="排序后对比", command=self._jd_compare,
+                  bg="#1abc9c", fg="white",
+                  font=("Microsoft YaHei UI", 11, "bold"), width=14).pack(side="left", pady=6)
+        tk.Button(btn_row, text="清空", command=self._jd_clear, width=8).pack(side="left", padx=(10, 0))
+
+    def _jd_compare(self):
+        t1 = self._jd_left.get("1.0", "end-1c")
+        t2 = self._jd_right.get("1.0", "end-1c")
+        if not t1 or not t2:
+            messagebox.showwarning("提示", "请输入两段JSON内容")
+            return
+        # 先校验合法性
+        try:
+            json.loads(t1)
+        except Exception as e:
+            messagebox.showwarning("提示", f"左侧JSON格式错误: {e}")
+            return
+        try:
+            json.loads(t2)
+        except Exception as e:
+            messagebox.showwarning("提示", f"右侧JSON格式错误: {e}")
+            return
+        self._start_task(self._jd_do_compare, t1, t2,
+                         on_done=self._jd_done)
+
+    def _jd_do_compare(self, t1, t2):
+        s1 = json_sort(t1)
+        s2 = json_sort(t2)
+        left_spans, right_spans = json_diff_spans(s1, s2)
+        print(f"排序完成, 差异标注: 左侧 {len(left_spans)} 处, 右侧 {len(right_spans)} 处")
+        return (s1, s2, left_spans, right_spans)
+
+    def _jd_done(self, result):
+        if result is None:
+            self._log_result_banner(False)
+            return
+        s1, s2, left_spans, right_spans = result
+        # 用排序后的JSON替换两框内容
+        self._jd_left.delete("1.0", "end")
+        self._jd_left.insert("1.0", s1)
+        self._jd_right.delete("1.0", "end")
+        self._jd_right.insert("1.0", s2)
+        # 清除旧标注后应用新标注
+        for w, spans in ((self._jd_left, left_spans), (self._jd_right, right_spans)):
+            w.tag_remove("changed_bg", "1.0", "end")
+            w.tag_remove("changed_fg", "1.0", "end")
+            for (a, b, kind) in spans:
+                tag = "changed_bg" if kind == "line" else "changed_fg"
+                w.tag_add(tag, f"{a[0]}.{a[1]}", f"{b[0]}.{b[1]}")
+        self._log_result_banner(True)
+
+    def _jd_clear(self):
+        for w in (self._jd_left, self._jd_right):
+            w.delete("1.0", "end")
+            w.tag_remove("changed_bg", "1.0", "end")
+            w.tag_remove("changed_fg", "1.0", "end")
+
+    # =============== 页面12: 关于 ===============
     def _show_page_about(self):
         self.title_label.config(text="关于")
         info = (
@@ -919,7 +1017,8 @@ class ToolboxApp(tk.Tk):
             "  7. 随机人员信息 - 生成随机身份证号、姓名、手机号等\n"
             "  8. URL编码解码 - 文本的URL百分号编码与解码\n"
             "  9. 接口请求 - 发送GET/POST请求查看响应\n"
-            "  10. JSON格式化 - JSON美化/压缩为字符串\n\n"
+            "  10. JSON格式化 - JSON美化/压缩为字符串\n"
+            "  11. JSON对比 - 排序后逐字符对比，标注差异\n\n"
             "使用方法:\n"
             "  左侧选择功能，右侧填写参数后点击开始按钮。\n"
         )

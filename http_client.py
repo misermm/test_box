@@ -60,9 +60,12 @@ def send_request(method, url, headers=None, body=None, timeout=15):
         resp_headers = dict(e.headers.items())
     elapsed = time.time() - start
 
-    charset = resp_headers.get("charset") or "utf-8"
+    charset = None
+    ctype = resp_headers.get("Content-Type") or resp_headers.get("content-type") or ""
+    if "charset=" in ctype:
+        charset = ctype.split("charset=")[-1].split(";")[0].strip().strip('"')
     try:
-        text = raw.decode(charset, errors="replace")
+        text = raw.decode(charset or "utf-8", errors="replace")
     except LookupError:
         text = raw.decode("utf-8", errors="replace")
 
@@ -84,8 +87,9 @@ def format_response(resp):
         lines.append(f"{k}: {v}")
     lines.append("")
     body = resp["body"]
-    ctype = resp["headers"].get("Content-Type", "")
-    if "json" in ctype.lower() or "json" in body[:20].lstrip().lower():
+    ctype = resp["headers"].get("Content-Type") or resp["headers"].get("content-type") or ""
+    stripped = body.lstrip()
+    if "json" in ctype.lower() or stripped[:1] in ("{", "["):
         try:
             body = json.dumps(json.loads(body), ensure_ascii=False, indent=2)
         except (ValueError, RecursionError):
