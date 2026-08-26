@@ -77,6 +77,7 @@ class ToolboxApp(tk.Tk):
         self._merge_out_var = tk.StringVar(value=DEFAULT_DATA)
         self._gen_size_var = tk.StringVar(value="101")
         self._gen_type_var = tk.StringVar(value="zip")
+        self._gen_corrupt_var = tk.StringVar(value="正常")
         self._gen_out_var = tk.StringVar(value=DEFAULT_DATA)
         self._text_len_var = tk.StringVar(value="100")
         self._text_type_var = tk.StringVar(value="汉字+英文+中英文标点")
@@ -521,6 +522,11 @@ class ToolboxApp(tk.Tk):
         ttk.Combobox(r2, textvariable=self._gen_type_var, state="readonly",
                      values=["zip", "plain", "pdf", "docx", "xlsx"], width=10).pack(side="left", padx=8)
 
+        r4 = self._row(self.content)
+        self._label(r4, "文件状态:").pack(side="left")
+        ttk.Combobox(r4, textvariable=self._gen_corrupt_var, state="readonly",
+                     values=["正常", "损坏"], width=10).pack(side="left", padx=8)
+
         r3 = self._row(self.content)
         self._label(r3, "输出目录:").pack(side="left")
         tk.Entry(r3, textvariable=self._gen_out_var).pack(side="left", padx=8, fill="x", expand=True)
@@ -553,8 +559,10 @@ class ToolboxApp(tk.Tk):
             messagebox.showwarning("提示", "请设置输出目录")
             return
         os.makedirs(out_dir, exist_ok=True)
-        out_file = os.path.join(out_dir, f"file_{size:g}.{ext}")
-        self._start_task(create_file, out_file, size, ftype,
+        corrupted = self._gen_corrupt_var.get() == "损坏"
+        suffix = "_corrupted" if corrupted else ""
+        out_file = os.path.join(out_dir, f"file_{size:g}{suffix}.{ext}")
+        self._start_task(create_file, out_file, size, ftype, corrupted,
                          on_done=self._on_done_success)
 
     # =============== 页面6: 生成指定长度文本 ===============

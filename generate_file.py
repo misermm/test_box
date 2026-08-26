@@ -10,19 +10,38 @@ import zipfile
 import argparse
 
 
-def create_file(output_path, size_mb, file_type="zip"):
+def corrupt_file(output_path):
+    """
+    损坏文件：用随机数据覆盖文件头部和尾部（保留原大小），
+    破坏文件签名、结构和结束标记，使其无法正常打开
+    """
+    print("正在损坏文件...")
+    total = os.path.getsize(output_path)
+    if total <= 0:
+        return
+    region = min(4096, total // 2)
+    with open(output_path, 'r+b') as f:
+        f.write(os.urandom(region))
+        f.seek(total - region)
+        f.write(os.urandom(region))
+    print(f"已覆盖头部和尾部各 {region} 字节")
+
+
+def create_file(output_path, size_mb, file_type="zip", corrupted=False):
     """
     创建指定大小的文件
-    
+
     参数:
         output_path: 输出文件路径
         size_mb: 文件大小（MB）
         file_type: 文件类型 (zip, plain, pdf, docx, xlsx)
+        corrupted: 是否生成损坏的文件
     """
     size_bytes = int(size_mb * 1024 * 1024)
     
     print(f"目标大小: {size_mb} MB ({size_bytes} bytes)")
     print(f"文件类型: {file_type}")
+    print(f"是否损坏: {'是' if corrupted else '否'}")
     print(f"输出路径: {output_path}")
     print()
     
@@ -39,7 +58,10 @@ def create_file(output_path, size_mb, file_type="zip"):
         create_xlsx_file(output_path, size_bytes)
     else:
         create_plain_file(output_path, size_bytes)
-    
+
+    if corrupted:
+        corrupt_file(output_path)
+
     # 验证文件大小
     actual_size = os.path.getsize(output_path)
     actual_mb = actual_size / (1024 * 1024)
@@ -369,14 +391,20 @@ def main():
         default='zip',
         help='文件类型: zip, plain, pdf, docx, xlsx (默认: zip)'
     )
+
+    parser.add_argument(
+        '-c', '--corrupted',
+        action='store_true',
+        help='生成损坏的文件（破坏文件头，保留原大小）'
+    )
     
     args = parser.parse_args()
-    
+
     if args.size <= 0:
         print("错误: 文件大小必须大于0")
         sys.exit(1)
-    
-    create_file(args.output, args.size, args.type)
+
+    create_file(args.output, args.size, args.type, corrupted=args.corrupted)
 
 
 if __name__ == '__main__':
