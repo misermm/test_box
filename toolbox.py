@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 图片工具箱
 集成: 图片转PDF / 文件分割 / 文件合并 / 生成指定大小文件
@@ -250,9 +250,15 @@ class ToolboxApp(tk.Tk):
                 self._append_log_text(chunk)
                 self.log.config(state="disabled")
 
+    def _notify(self, text):
+        """用日志代替弹窗提示"""
+        self.log.config(state="normal")
+        self._append_log_text(f"[提示] {text}\n")
+        self.log.config(state="disabled")
+
     def _start_task(self, func, *args, on_done=None):
         if self._running:
-            messagebox.showwarning("提示", "有任务正在运行，请等待完成")
+            self._notify("有任务正在运行，请等待完成")
             return
         self._buffer = LogBuffer()
         self._task_page = self._current_menu_index
@@ -384,11 +390,11 @@ class ToolboxApp(tk.Tk):
 
     def _pdf_convert(self):
         if not self._pdf_images:
-            messagebox.showwarning("提示", "请先添加图片")
+            self._notify("请先添加图片")
             return
         out_dir = self._pdf_out_var.get().strip()
         if not out_dir:
-            messagebox.showwarning("提示", "请设置输出路径")
+            self._notify("请设置输出路径")
             return
         os.makedirs(out_dir, exist_ok=True)
         out = os.path.join(out_dir, "output.pdf")
@@ -447,11 +453,11 @@ class ToolboxApp(tk.Tk):
 
     def _zip_convert(self):
         if not self._zip_images:
-            messagebox.showwarning("提示", "请先添加图片")
+            self._notify("请先添加图片")
             return
         out_dir = self._zip_out_var.get().strip()
         if not out_dir:
-            messagebox.showwarning("提示", "请设置输出路径")
+            self._notify("请设置输出路径")
             return
         os.makedirs(out_dir, exist_ok=True)
         out = os.path.join(out_dir, "images_pdfs.zip")
@@ -499,19 +505,19 @@ class ToolboxApp(tk.Tk):
     def _split_run(self):
         f = self._split_in_var.get().strip()
         if not f or not os.path.exists(f):
-            messagebox.showwarning("提示", "请选择有效的输入文件")
+            self._notify("请选择有效的输入文件")
             return
         try:
             size = float(self._split_size_var.get())
         except ValueError:
-            messagebox.showwarning("提示", "请输入有效的分片大小")
+            self._notify("请输入有效的分片大小")
             return
         if size <= 0:
-            messagebox.showwarning("提示", "分片大小必须大于0")
+            self._notify("分片大小必须大于0")
             return
         out = self._split_out_var.get().strip()
         if not out:
-            messagebox.showwarning("提示", "请设置输出目录")
+            self._notify("请设置输出目录")
             return
         os.makedirs(out, exist_ok=True)
         self._start_task(split_to_zip, f, out, size,
@@ -569,11 +575,11 @@ class ToolboxApp(tk.Tk):
 
     def _merge_run(self):
         if not self._merge_files:
-            messagebox.showwarning("提示", "请先添加ZIP文件")
+            self._notify("请先添加ZIP文件")
             return
         out_dir = self._merge_out_var.get().strip()
         if not out_dir:
-            messagebox.showwarning("提示", "请设置输出路径")
+            self._notify("请设置输出路径")
             return
         os.makedirs(out_dir, exist_ok=True)
         out = os.path.join(out_dir, "merged.bin")
@@ -618,17 +624,17 @@ class ToolboxApp(tk.Tk):
         try:
             size = float(self._gen_size_var.get())
         except ValueError:
-            messagebox.showwarning("提示", "请输入有效的大小")
+            self._notify("请输入有效的大小")
             return
         if size <= 0:
-            messagebox.showwarning("提示", "大小必须大于0")
+            self._notify("大小必须大于0")
             return
         ftype = self._gen_type_var.get()
         ext_map = {"zip": "zip", "plain": "bin", "pdf": "pdf", "docx": "docx", "xlsx": "xlsx"}
         ext = ext_map.get(ftype, "bin")
         out_dir = self._gen_out_var.get().strip()
         if not out_dir:
-            messagebox.showwarning("提示", "请设置输出目录")
+            self._notify("请设置输出目录")
             return
         os.makedirs(out_dir, exist_ok=True)
         corrupted = self._gen_corrupt_var.get() == "损坏"
@@ -668,10 +674,10 @@ class ToolboxApp(tk.Tk):
         try:
             length = int(self._text_len_var.get())
         except ValueError:
-            messagebox.showwarning("提示", "请输入有效的长度")
+            self._notify("请输入有效的长度")
             return
         if length < 1:
-            messagebox.showwarning("提示", "长度必须大于0")
+            self._notify("长度必须大于0")
             return
         text_type = self._text_type_var.get()
         self._text_result.delete("1.0", "end")
@@ -695,11 +701,11 @@ class ToolboxApp(tk.Tk):
     def _text_copy(self):
         text = self._text_result.get("1.0", "end-1c")
         if not text:
-            messagebox.showwarning("提示", "没有可复制的内容")
+            self._notify("没有可复制的内容")
             return
         self.clipboard_clear()
         self.clipboard_append(text)
-        messagebox.showinfo("提示", "已复制到剪贴板")
+        self._notify("已复制到剪贴板")
 
     # =============== 页面7: 随机人员信息 ===============
     def _show_page_person(self):
@@ -739,10 +745,10 @@ class ToolboxApp(tk.Tk):
         try:
             age = int(self._person_age_var.get())
         except ValueError:
-            messagebox.showwarning("提示", "请输入有效的年龄")
+            self._notify("请输入有效的年龄")
             return
         if age < 1 or age > 150:
-            messagebox.showwarning("提示", "年龄应在1-150之间")
+            self._notify("年龄应在1-150之间")
             return
 
         gender = self._person_gender_var.get()
@@ -750,10 +756,10 @@ class ToolboxApp(tk.Tk):
         try:
             count = int(self._person_count_var.get())
         except ValueError:
-            messagebox.showwarning("提示", "请输入有效的数量")
+            self._notify("请输入有效的数量")
             return
         if count < 1 or count > 100:
-            messagebox.showwarning("提示", "数量应在1-100之间")
+            self._notify("数量应在1-100之间")
             return
 
         self._person_result.delete("1.0", "end")
@@ -788,11 +794,11 @@ class ToolboxApp(tk.Tk):
     def _person_copy(self):
         text = self._person_result.get("1.0", "end-1c")
         if not text:
-            messagebox.showwarning("提示", "没有可复制的内容")
+            self._notify("没有可复制的内容")
             return
         self.clipboard_clear()
         self.clipboard_append(text)
-        messagebox.showinfo("提示", "已复制到剪贴板")
+        self._notify("已复制到剪贴板")
 
     # =============== 页面8: URL编码解码 ===============
     def _show_page_url(self):
@@ -824,7 +830,7 @@ class ToolboxApp(tk.Tk):
     def _url_run(self, encode):
         text = self._url_input.get("1.0", "end-1c")
         if not text:
-            messagebox.showwarning("提示", "请输入内容")
+            self._notify("请输入内容")
             return
         self._start_task(self._url_convert, text, encode,
                          on_done=self._url_done)
@@ -848,11 +854,11 @@ class ToolboxApp(tk.Tk):
     def _url_copy(self):
         text = self._url_output.get("1.0", "end-1c")
         if not text:
-            messagebox.showwarning("提示", "没有可复制的内容")
+            self._notify("没有可复制的内容")
             return
         self.clipboard_clear()
         self.clipboard_append(text)
-        messagebox.showinfo("提示", "已复制到剪贴板")
+        self._notify("已复制到剪贴板")
 
     def _url_clear(self):
         self._url_input.delete("1.0", "end")
@@ -899,7 +905,7 @@ class ToolboxApp(tk.Tk):
     def _http_run(self):
         url = self._http_url_var.get().strip()
         if not url:
-            messagebox.showwarning("提示", "请输入URL")
+            self._notify("请输入URL")
             return
         method = self._http_method_var.get()
         headers_raw = self._http_headers_text.get("1.0", "end-1c")
@@ -907,7 +913,7 @@ class ToolboxApp(tk.Tk):
         try:
             headers = parse_headers(headers_raw) if headers_raw else None
         except ValueError as e:
-            messagebox.showwarning("提示", str(e))
+            self._notify(str(e))
             return
         self._start_task(self._http_send, method, url, headers, body,
                          on_done=self._http_done)
@@ -951,7 +957,7 @@ class ToolboxApp(tk.Tk):
     def _json_run(self, mode):
         text = self._json_input.get("1.0", "end-1c")
         if not text:
-            messagebox.showwarning("提示", "请输入JSON内容")
+            self._notify("请输入JSON内容")
             return
         self._start_task(self._json_convert, text, mode,
                          on_done=self._json_done)
@@ -975,11 +981,11 @@ class ToolboxApp(tk.Tk):
     def _json_copy(self):
         text = self._json_input.get("1.0", "end-1c")
         if not text:
-            messagebox.showwarning("提示", "没有可复制的内容")
+            self._notify("没有可复制的内容")
             return
         self.clipboard_clear()
         self.clipboard_append(text)
-        messagebox.showinfo("提示", "已复制到剪贴板")
+        self._notify("已复制到剪贴板")
 
     def _json_clear(self):
         self._json_input.delete("1.0", "end")
@@ -1027,18 +1033,18 @@ class ToolboxApp(tk.Tk):
         t1 = self._jd_left.get("1.0", "end-1c")
         t2 = self._jd_right.get("1.0", "end-1c")
         if not t1 or not t2:
-            messagebox.showwarning("提示", "请输入两段JSON内容")
+            self._notify("请输入两段JSON内容")
             return
         # 先校验合法性
         try:
             json.loads(t1)
         except Exception as e:
-            messagebox.showwarning("提示", f"左侧JSON格式错误: {e}")
+            self._notify(f"左侧JSON格式错误: {e}")
             return
         try:
             json.loads(t2)
         except Exception as e:
-            messagebox.showwarning("提示", f"右侧JSON格式错误: {e}")
+            self._notify(f"右侧JSON格式错误: {e}")
             return
         self._start_task(self._jd_do_compare, t1, t2,
                          on_done=self._jd_done)
