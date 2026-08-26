@@ -139,6 +139,11 @@ class ToolboxApp(tk.Tk):
         if sel:
             self._select_menu(sel[0])
 
+    def _page_title(self, index):
+        return ["图片转 PDF", "图片批量转 ZIP", "文件分割", "文件合并",
+                "生成指定大小文件", "生成指定长度文本", "随机人员信息",
+                "URL编码解码", "接口请求", "JSON格式化", "JSON对比", "关于"][index]
+
     def _select_menu(self, index):
         self.menu_list.selection_clear(0, "end")
         self.menu_list.selection_set(index)
@@ -151,6 +156,7 @@ class ToolboxApp(tk.Tk):
 
         self._current_menu_index = index
         self._log_owner = index
+        self.title_label.config(text=self._page_title(index))
 
         frame = self._page_frames.get(index)
         if frame is None:
@@ -924,11 +930,11 @@ class ToolboxApp(tk.Tk):
     # =============== 页面10: JSON格式化 ===============
     def _show_page_json(self):
         self.title_label.config(text="JSON格式化")
-        self._label(self.content, "输入 JSON 文本，格式化为可读缩进形式或压缩为一行字符串。").pack(anchor="w", pady=(0, 8))
+        self._label(self.content, "输入 JSON 文本，点击按钮后直接在输入框中原地格式化或压缩。").pack(anchor="w", pady=(0, 8))
 
         tk.Label(self.content, text="输入:", bg="#f5f6fa",
                  font=("Microsoft YaHei UI", 10)).pack(anchor="w")
-        self._json_input = tk.Text(self.content, height=8, font=("Consolas", 10),
+        self._json_input = tk.Text(self.content, height=16, font=("Consolas", 10),
                                    wrap="word", bg="white")
         self._json_input.pack(fill="both", expand=True)
 
@@ -939,14 +945,8 @@ class ToolboxApp(tk.Tk):
         tk.Button(btn_row, text="压缩为字符串", command=lambda: self._json_run("compact"),
                   bg="#3498db", fg="white",
                   font=("Microsoft YaHei UI", 11, "bold"), width=14).pack(side="left", padx=(10, 0))
-        tk.Button(btn_row, text="复制结果", command=self._json_copy, width=10).pack(side="left", padx=(10, 0))
+        tk.Button(btn_row, text="复制", command=self._json_copy, width=10).pack(side="left", padx=(10, 0))
         tk.Button(btn_row, text="清空", command=self._json_clear, width=8).pack(side="left", padx=(10, 0))
-
-        tk.Label(self.content, text="结果:", bg="#f5f6fa",
-                 font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(4, 3))
-        self._json_output = tk.Text(self.content, height=8, font=("Consolas", 10),
-                                    wrap="word", bg="white")
-        self._json_output.pack(fill="both", expand=True)
 
     def _json_run(self, mode):
         text = self._json_input.get("1.0", "end-1c")
@@ -968,12 +968,12 @@ class ToolboxApp(tk.Tk):
         if result is None:
             self._log_result_banner(False)
             return
-        self._json_output.delete("1.0", "end")
-        self._json_output.insert("1.0", result)
+        self._json_input.delete("1.0", "end")
+        self._json_input.insert("1.0", result)
         self._log_result_banner(True)
 
     def _json_copy(self):
-        text = self._json_output.get("1.0", "end-1c")
+        text = self._json_input.get("1.0", "end-1c")
         if not text:
             messagebox.showwarning("提示", "没有可复制的内容")
             return
@@ -983,7 +983,6 @@ class ToolboxApp(tk.Tk):
 
     def _json_clear(self):
         self._json_input.delete("1.0", "end")
-        self._json_output.delete("1.0", "end")
 
     # =============== 页面11: JSON对比 ===============
     def _show_page_jsondiff(self):
