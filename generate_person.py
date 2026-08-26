@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 SURNAMES = (
     "王李张刘陈杨黄赵吴周徐孙马胡朱郭何罗梁宋郑谢韩唐冯于董萧程曹袁邓许傅"
     "沈曾彭吕苏卢蒋蔡贾丁魏薛叶阎余潘杜戴夏钟汪田任姜范方石姚谭廖邹熊金陆郝"
-    "孔白崔康毛邱秦江史顾侯邵孟龙万段漕钱汤尹黎易常武乔贺赖龚文"
+    "孔白崔康毛邱秦江史顾侯邵孟龙万段钱汤尹黎易常武乔贺赖龚文"
 )
 
 # 常见名字用字
@@ -42,7 +42,6 @@ AREA_CODES = [
     "370102", "370103", "370104", "370105", "370112", "370113",
     "350102", "350103", "350104", "350105", "350111", "350112",
     "610102", "610103", "610104", "610111", "610112", "610113",
-    "500101", "500102", "500103", "500104", "500105", "500106",
     "210102", "210103", "210104", "210105", "210106", "210111", "210112",
     "220102", "220103", "220104", "220105", "220106",
     "230102", "230103", "230104", "230105", "230106", "230107", "230108",
@@ -56,29 +55,19 @@ def generate_birth_date(age, as_of_date=None):
     
     if as_of_date is None:
         as_of_date = datetime.now()
-    
-    # 生成该年龄范围内的随机日期
-    start_year = as_of_date.year - age - 1
-    end_year = as_of_date.year - age
-    
-    year = random.randint(start_year, end_year)
-    month = random.randint(1, 12)
-    
-    # 根据月份确定天数
-    if month in [1, 3, 5, 7, 8, 10, 12]:
-        max_day = 31
-    elif month in [4, 6, 9, 11]:
-        max_day = 30
-    elif month == 2:
-        if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0):
-            max_day = 29
-        else:
-            max_day = 28
-    else:
-        max_day = 28
-    
-    day = random.randint(1, max_day)
-    return datetime(year, month, day)
+
+    def _minus_years(d, years):
+        try:
+            return d.replace(year=d.year - years)
+        except ValueError:
+            # 2月29日 -> 平年取2月28日
+            return d.replace(year=d.year - years, day=28)
+
+    # 出生日期在 [今天-(age+1)年+1天, 今天-age年] 内随机，确保实际年龄恰好等于age
+    earliest = _minus_years(as_of_date, age + 1) + timedelta(days=1)
+    latest = _minus_years(as_of_date, age)
+    offset_days = random.randint(0, (latest - earliest).days)
+    return earliest + timedelta(days=offset_days)
 
 
 def calculate_id_checksum(id17):

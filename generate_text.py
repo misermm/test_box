@@ -3,7 +3,7 @@
 
 import random
 
-CHINESE_PUNCT = "，。、；：？！""''（）【】《》〈〉…—·"
+CHINESE_PUNCT = "，。、；：？！“”‘’（）【】《》〈〉…—·"
 ENGLISH_PUNCT = ",.!?;:'\"()[]-_"
 ENGLISH_LETTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 DIGITS = "0123456789"

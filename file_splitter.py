@@ -31,7 +31,11 @@ def split_to_zip(input_file, output_dir, max_size_mb, prefix="part"):
     if not os.path.exists(input_file):
         print(f"错误: 文件不存在 - {input_file}")
         return False
-    
+
+    if max_size_mb <= 0:
+        print("错误: 分片大小必须大于0")
+        return False
+
     # 确保输出目录存在
     os.makedirs(output_dir, exist_ok=True)
     
@@ -60,39 +64,39 @@ def split_to_zip(input_file, output_dir, max_size_mb, prefix="part"):
     input_size_bytes = os.path.getsize(input_file)
     max_size_bytes = max_size_mb * 1024 * 1024
     num_parts = math.ceil(input_size_bytes / max_size_bytes)
-    
+
     print(f"\n需要分割成 {num_parts} 个部分")
-    
-    # 读取文件内容
-    with open(input_file, 'rb') as f:
-        data = f.read()
-    
-    # 计算每部分的大小
-    part_size = math.ceil(len(data) / num_parts)
-    
+
+    # 流式读取，避免大文件整体载入内存
+    part_size = math.ceil(input_size_bytes / num_parts)
+
     # 创建分割文件
     created_files = []
-    for i in range(num_parts):
-        start = i * part_size
-        end = min((i + 1) * part_size, len(data))
-        part_data = data[start:end]
-        
-        # 创建临时文件
-        temp_file = os.path.join(output_dir, f"{prefix}_temp_{i+1}.bin")
-        with open(temp_file, 'wb') as f:
-            f.write(part_data)
-        
-        # 压缩成ZIP
-        output_file = os.path.join(output_dir, f"{prefix}_{i+1}.zip")
-        with zipfile.ZipFile(output_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            zipf.write(temp_file, f"{file_name}.part{i+1}")
-        
-        # 删除临时文件
-        os.remove(temp_file)
-        
-        final_size = get_file_size_mb(output_file)
-        print(f"创建: {output_file} ({final_size:.2f} MB)")
-        created_files.append(output_file)
+    with open(input_file, 'rb') as f:
+        for i in range(num_parts):
+            # 创建临时文件
+            temp_file = os.path.join(output_dir, f"{prefix}_temp_{i+1}.bin")
+            remaining = min(part_size, input_size_bytes - i * part_size)
+            with open(temp_file, 'wb') as tf:
+                copied = 0
+                while copied < remaining:
+                    chunk = f.read(min(1024 * 1024, remaining - copied))
+                    if not chunk:
+                        break
+                    tf.write(chunk)
+                    copied += len(chunk)
+
+            # 压缩成ZIP
+            output_file = os.path.join(output_dir, f"{prefix}_{i+1}.zip")
+            with zipfile.ZipFile(output_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                zipf.write(temp_file, f"{file_name}.part{i+1}")
+
+            # 删除临时文件
+            os.remove(temp_file)
+
+            final_size = get_file_size_mb(output_file)
+            print(f"创建: {output_file} ({final_size:.2f} MB)")
+            created_files.append(output_file)
     
     print(f"\n分割完成! 共创建 {len(created_files)} 个ZIP文件")
     return True

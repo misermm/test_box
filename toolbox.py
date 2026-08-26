@@ -62,6 +62,11 @@ class ToolboxApp(tk.Tk):
         self._poll_job = None
         self._task_thread = None
         self._running = False
+        self._page_frames = {}
+        self._page_logs = {}
+        self._current_menu_index = None
+        self._log_owner = None
+        self._task_page = None
 
         # 持久化变量（切换页面时保留值）
         DEFAULT_DATA = r"C:\work\ai\picture_to_pdf\data"
@@ -112,8 +117,9 @@ class ToolboxApp(tk.Tk):
                                     font=("Microsoft YaHei UI", 16, "bold"))
         self.title_label.pack(anchor="w", padx=20, pady=(15, 5))
 
-        self.content = tk.Frame(right, bg="#f5f6fa")
-        self.content.pack(fill="both", expand=True, padx=20, pady=(0, 10))
+        self.content = None
+        self.page_container = tk.Frame(right, bg="#f5f6fa")
+        self.page_container.pack(fill="both", expand=True, padx=20, pady=(0, 10))
 
         self.log_frame = tk.LabelFrame(right, text="运行日志", bg="#f5f6fa",
                                        font=("Microsoft YaHei UI", 10))
@@ -138,39 +144,88 @@ class ToolboxApp(tk.Tk):
         self.menu_list.selection_set(index)
         self.menu_list.activate(index)
 
-        for w in self.content.winfo_children():
-            w.destroy()
+        self._save_current_log()
 
-        if index == 0:
-            self._show_page_pdf()
-        elif index == 1:
-            self._show_page_zip()
-        elif index == 2:
-            self._show_page_split()
-        elif index == 3:
-            self._show_page_merge()
-        elif index == 4:
-            self._show_page_generate()
-        elif index == 5:
-            self._show_page_text()
-        elif index == 6:
-            self._show_page_person()
-        elif index == 7:
-            self._show_page_url()
-        elif index == 8:
-            self._show_page_http()
-        elif index == 9:
-            self._show_page_json()
-        elif index == 10:
-            self._show_page_jsondiff()
+        if self.content is not None:
+            self.content.pack_forget()
+
+        self._current_menu_index = index
+        self._log_owner = index
+
+        frame = self._page_frames.get(index)
+        if frame is None:
+            frame = tk.Frame(self.page_container, bg="#f5f6fa")
+            self._page_frames[index] = frame
+            self.content = frame
+            if index == 0:
+                self._show_page_pdf()
+            elif index == 1:
+                self._show_page_zip()
+            elif index == 2:
+                self._show_page_split()
+            elif index == 3:
+                self._show_page_merge()
+            elif index == 4:
+                self._show_page_generate()
+            elif index == 5:
+                self._show_page_text()
+            elif index == 6:
+                self._show_page_person()
+            elif index == 7:
+                self._show_page_url()
+            elif index == 8:
+                self._show_page_http()
+            elif index == 9:
+                self._show_page_json()
+            elif index == 10:
+                self._show_page_jsondiff()
+            else:
+                self._show_page_about()
         else:
-            self._show_page_about()
+            self.content = frame
+
+        frame.pack(fill="both", expand=True)
+
+        self._restore_log()
 
     # ---------------- 日志 ----------------
+    def _save_current_log(self):
+        if self._log_owner is None:
+            return
+        content = self.log.get("1.0", "end-1c")
+        if content.strip():
+            self._page_logs[self._log_owner] = content
+        else:
+            self._page_logs.pop(self._log_owner, None)
+
+    def _restore_log(self):
+        self.log.config(state="normal")
+        self.log.delete("1.0", "end")
+        content = self._page_logs.get(self._log_owner)
+        if content:
+            for line in content.split("\n"):
+                if "任务完成" in line:
+                    self.log.insert("end", line + "\n", "ok")
+                elif "任务失败" in line:
+                    self.log.insert("end", line + "\n", "err")
+                else:
+                    self.log.insert("end", line + "\n")
+            self.log.see("end")
+        self.log.config(state="disabled")
+
+    def _append_log_text(self, text):
+        """追加任务日志：当前显示的就是任务所属页面时写控件，否则写入该页存储"""
+        if self._task_page is None or self._log_owner == self._task_page:
+            self.log.insert("end", text)
+            self.log.see("end")
+            self._save_current_log()
+        else:
+            stored = self._page_logs.get(self._task_page, "")
+            self._page_logs[self._task_page] = stored + text.replace("\r", "\n")
+
     def _log(self, text):
         self.log.config(state="normal")
-        self.log.insert("end", text)
-        self.log.see("end")
+        self._append_log_text(text)
         self.log.config(state="disabled")
 
     def _flush_log(self, data):
@@ -183,10 +238,10 @@ class ToolboxApp(tk.Tk):
                 for line in chunk.split("\n"):
                     self._log(line + "\n")
             else:
+                # \r 进度行：替换控件中的最后一行
                 self.log.config(state="normal")
                 self.log.delete("end-1l", "end")
-                self.log.insert("end", chunk)
-                self.log.see("end")
+                self._append_log_text(chunk)
                 self.log.config(state="disabled")
 
     def _start_task(self, func, *args, on_done=None):
@@ -194,6 +249,9 @@ class ToolboxApp(tk.Tk):
             messagebox.showwarning("提示", "有任务正在运行，请等待完成")
             return
         self._buffer = LogBuffer()
+        self._task_page = self._current_menu_index
+        self._save_current_log()
+        self._page_logs.pop(self._current_menu_index, None)
         self.log.config(state="normal")
         self.log.delete("1.0", "end")
         self.log.config(state="disabled")
@@ -246,8 +304,13 @@ class ToolboxApp(tk.Tk):
         mark = "√" * 8 if ok else "×" * 8
         text = f" 任务完成 " if ok else " 任务失败 "
         self.log.config(state="normal")
-        self.log.insert("end", f"\n{mark}{text}{mark}\n\n", tag)
-        self.log.see("end")
+        if self._task_page is None or self._log_owner == self._task_page:
+            self.log.insert("end", f"\n{mark}{text}{mark}\n\n", tag)
+            self.log.see("end")
+            self._save_current_log()
+        else:
+            stored = self._page_logs.get(self._task_page, "")
+            self._page_logs[self._task_page] = stored + f"\n{mark}{text}{mark}\n\n"
         self.log.config(state="disabled")
 
     def _on_done_success(self, result):
@@ -436,6 +499,9 @@ class ToolboxApp(tk.Tk):
             size = float(self._split_size_var.get())
         except ValueError:
             messagebox.showwarning("提示", "请输入有效的分片大小")
+            return
+        if size <= 0:
+            messagebox.showwarning("提示", "分片大小必须大于0")
             return
         out = self._split_out_var.get().strip()
         if not out:

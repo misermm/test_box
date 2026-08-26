@@ -64,6 +64,10 @@ def convert_images_to_zip(image_paths, output_zip_path):
                 name = f"{base}.pdf"
                 if name.lower() in used_names:
                     name = f"{i:03d}_{base}.pdf"
+                    n = 1
+                    while name.lower() in used_names:
+                        name = f"{i:03d}_{base}_{n}.pdf"
+                        n += 1
                 used_names.add(name.lower())
 
                 zipf.writestr(name, buf.getvalue())
@@ -214,7 +218,11 @@ def main():
     
     # 转换图片
     if args.zip:
-        success = convert_images_to_zip(image_paths, args.output)
+        # ZIP模式默认输出扩展名应为 .zip
+        output = args.output
+        if output == 'output.pdf':
+            output = 'output.zip'
+        success = convert_images_to_zip(image_paths, output)
     else:
         success = merge_images_to_pdf(image_paths, args.output)
     

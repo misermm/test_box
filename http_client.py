@@ -44,7 +44,7 @@ def send_request(method, url, headers=None, body=None, timeout=15):
     if headers:
         for k, v in headers.items():
             req.add_header(k, v)
-    if data and not (headers and headers.get("Content-Type")):
+    if data and not (headers and any(k.lower() == "content-type" for k in headers)):
         req.add_header("Content-Type", "application/x-www-form-urlencoded")
 
     start = time.time()
