@@ -11,7 +11,7 @@ if exist build rmdir /s /q build
 del /q *.spec 2>nul
 
 echo [2/3] Building exe...
-python -m PyInstaller --onefile --noconsole --name "TestToolbox" --collect-all PIL toolbox.py
+python -m PyInstaller --onefile --noconsole --name "TestToolbox" --collect-all PIL --collect-all cv2 --collect-all paddle --collect-all pyclipper --collect-all shapely --collect-all paddlex --add-data "C:\Users\X\AppData\Local\Programs\Python\Python313\Lib\site-packages\paddle\libs;paddle\libs" toolbox.py
 
 if %ERRORLEVEL% ne 0 (
     echo Build failed!

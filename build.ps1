@@ -12,7 +12,7 @@ if (Test-Path "build") { Remove-Item -Recurse -Force "build" }
 Get-ChildItem "*.spec" -ErrorAction SilentlyContinue | Remove-Item -Force
 
 Write-Host "[2/3] Building exe..." -ForegroundColor Yellow
-& python -m PyInstaller --onefile --noconsole --name "TestToolbox" --collect-all PIL toolbox.py
+& python -m PyInstaller --onefile --noconsole --name "TestToolbox" --collect-all PIL --collect-all cv2 --collect-all paddle --collect-all pyclipper --collect-all shapely --collect-all paddlex --add-data "C:\Users\X\AppData\Local\Programs\Python\Python313\Lib\site-packages\paddle\libs;paddle\libs" toolbox.py
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Build failed!" -ForegroundColor Red
