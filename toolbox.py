@@ -5,11 +5,23 @@
 """
 
 import os
+os.environ['PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT'] = '0'
+
+# Monkey-patch: 绕过 paddlex 在 PyInstaller exe 中的依赖检查
+# importlib.metadata 在冻结 exe 中找不到包元数据，但依赖实际已安装
+import paddlex.utils.deps as _pdx_deps
+_pdx_deps.is_extra_available = lambda extra: True
+_pdx_deps.is_dep_available = lambda dep, check_version=False: True
+
+import re
 import json
+import tempfile
 import threading
 import contextlib
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+from PIL import Image, ImageGrab, ImageTk
+import cv2
 
 from image_to_pdf import merge_images_to_pdf, convert_images_to_zip
 from file_splitter import split_to_zip, merge_zip_files
@@ -19,6 +31,212 @@ from generate_person import generate_person, generate_id_card, generate_name, ge
 from url_codec import url_encode, url_decode
 from http_client import send_request, parse_headers, format_response
 from json_fmt import json_format, json_compact, json_sort, json_diff_spans
+
+
+# ==================== 截图表格识别模块 ====================
+
+class RegionSelector(tk.Toplevel):
+    """全屏遮罩 + 鼠标拖拽选区"""
+
+    def __init__(self, parent=None, callback=None):
+        super().__init__(parent)
+        self.callback = callback
+        self.start_x = 0
+        self.start_y = 0
+        self.rect_id = None
+        self._result_image = None
+
+        # 全屏无边框窗口
+        self.attributes("-fullscreen", True)
+        self.attributes("-topmost", True)
+        self.configure(bg="black")
+        self.attributes("-alpha", 0.3)
+
+        # Canvas 用于绘制选框
+        self.canvas = tk.Canvas(self, cursor="cross", bg="black", highlightthickness=0)
+        self.canvas.pack(fill="both", expand=True)
+
+        # 提示文字
+        self.canvas.create_text(
+            self.winfo_screenwidth() // 2,
+            30,
+            text="拖动鼠标框选表格区域，松开鼠标确认 | 按 ESC 取消",
+            fill="white",
+            font=("Microsoft YaHei UI", 14, "bold"),
+        )
+
+        # 绑定事件
+        self.canvas.bind("<ButtonPress-1>", self._on_press)
+        self.canvas.bind("<B1-Motion>", self._on_drag)
+        self.canvas.bind("<ButtonRelease-1>", self._on_release)
+        self.bind("<Escape>", self._on_cancel)
+
+    def _on_press(self, event):
+        self.start_x = event.x
+        self.start_y = event.y
+        if self.rect_id:
+            self.canvas.delete(self.rect_id)
+        self.rect_id = self.canvas.create_rectangle(
+            self.start_x, self.start_y, self.start_x, self.start_y,
+            outline="red", width=2, dash=(5, 3)
+        )
+
+    def _on_drag(self, event):
+        if self.rect_id:
+            self.canvas.coords(self.rect_id, self.start_x, self.start_y, event.x, event.y)
+
+    def _on_release(self, event):
+        x1 = min(self.start_x, event.x)
+        y1 = min(self.start_y, event.y)
+        x2 = max(self.start_x, event.x)
+        y2 = max(self.start_y, event.y)
+
+        width = x2 - x1
+        height = y2 - y1
+
+        if width < 10 or height < 10:
+            self._on_cancel()
+            return
+
+        self.withdraw()
+        self.update()
+
+        # 截取选区
+        screenshot = ImageGrab.grab(bbox=(x1, y1, x2, y2))
+        self._result_image = screenshot
+
+        if self.callback:
+            self.callback(screenshot)
+
+        self.destroy()
+
+    def _on_cancel(self, event=None):
+        self._result_image = None
+        if self.callback:
+            self.callback(None)
+        self.destroy()
+
+    def get_image(self):
+        return self._result_image
+
+
+def capture_region(parent=None, callback=None):
+    """弹出区域选择窗口，截图后通过callback返回PIL.Image"""
+    selector = RegionSelector(parent=parent, callback=callback)
+    return selector
+
+
+def recognize_table(image_path_or_pil):
+    """识别图片中的表格（使用paddlex table_recognition流水线）"""
+    os.environ['PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT'] = '0'
+    try:
+        import cv2
+    except ImportError:
+        raise ImportError("缺少 opencv-python 库，请运行: pip install opencv-python")
+    from paddlex import create_pipeline
+
+    temp_file = None
+    if isinstance(image_path_or_pil, Image.Image):
+        temp_file = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        image_path_or_pil.save(temp_file.name)
+        temp_file.close()
+        image_path = temp_file.name
+    else:
+        image_path = image_path_or_pil
+
+    try:
+        print("正在加载识别模型...")
+        pipeline = create_pipeline(pipeline='table_recognition')
+        print("模型加载完成，开始识别表格...")
+        output = list(pipeline.predict(input=image_path))
+        print("识别完成，正在解析结果...")
+
+        all_table_data = []
+        html_parts = []
+
+        for res in output:
+            html_dict = res.html if hasattr(res, 'html') else {}
+            if isinstance(html_dict, dict):
+                for key, html_str in html_dict.items():
+                    if html_str:
+                        html_parts.append(html_str)
+                        table_data = html_to_table_data(html_str)
+                        if table_data:
+                            all_table_data.extend(table_data)
+            elif isinstance(html_dict, str) and html_dict:
+                html_parts.append(html_dict)
+                table_data = html_to_table_data(html_dict)
+                if table_data:
+                    all_table_data.extend(table_data)
+
+        combined_html = "\n".join(html_parts) if html_parts else ""
+        return all_table_data, combined_html
+
+    finally:
+        if temp_file:
+            try:
+                os.unlink(temp_file.name)
+            except OSError:
+                pass
+
+
+def html_to_table_data(html):
+    """将HTML表格转换为二维列表"""
+    rows = []
+    tr_pattern = re.compile(r"<tr[^>]*>(.*?)</tr>", re.DOTALL | re.IGNORECASE)
+    td_pattern = re.compile(r"<t[dh][^>]*>(.*?)</t[dh]>", re.DOTALL | re.IGNORECASE)
+
+    for tr_match in tr_pattern.finditer(html):
+        tr_content = tr_match.group(1)
+        cells = []
+        for td_match in td_pattern.finditer(tr_content):
+            cell_text = td_match.group(1)
+            cell_text = re.sub(r"<[^>]+>", "", cell_text)
+            cell_text = cell_text.strip()
+            cells.append(cell_text)
+        if cells:
+            rows.append(cells)
+
+    return rows
+
+
+def table_data_to_html(table_data):
+    """将二维列表转换为HTML表格"""
+    if not table_data:
+        return ""
+
+    html = '<table border="1">\n'
+    for i, row in enumerate(table_data):
+        html += "  <tr>\n"
+        tag = "th" if i == 0 else "td"
+        for cell in row:
+            html += f"    <{tag}>{cell}</{tag}>\n"
+        html += "  </tr>\n"
+    html += "</table>"
+    return html
+
+
+def table_data_to_tsv(table_data):
+    """将二维列表转换为TSV格式（Tab分隔，可直接粘贴到Excel）"""
+    if not table_data:
+        return ""
+
+    lines = []
+    for row in table_data:
+        line = "\t".join(str(cell) for cell in row)
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def table_data_to_clipboard(widget, table_data):
+    """将表格数据复制到剪贴板（TSV格式）"""
+    tsv = table_data_to_tsv(table_data)
+    widget.clipboard_clear()
+    widget.clipboard_append(tsv)
+    return tsv
+
+
+# ==================== 主程序 ====================
 
 APP_NAME = "测试工具箱"
 APP_VERSION = "1.0.0"
@@ -88,6 +306,12 @@ class ToolboxApp(tk.Tk):
         self._text_type_var = tk.StringVar(value="汉字+英文+中英文标点")
         self._http_url_var = tk.StringVar()
 
+        # OCR表格识别相关变量
+        self._ocr_hotkey_var = tk.StringVar(value="Ctrl+Shift+T")
+        self._ocr_table_data = []
+        self._ocr_image = None
+        self._ocr_listener = None
+
         self._build_ui()
         self._select_menu(0)
 
@@ -105,7 +329,7 @@ class ToolboxApp(tk.Tk):
             selectbackground="#1abc9c", font=("Microsoft YaHei UI", 11),
             activestyle="none",
         )
-        for item in ["图片转 PDF", "图片批量转ZIP", "文件分割", "文件合并", "生成指定大小文件", "生成指定长度文本", "随机人员信息", "URL编码解码", "接口请求", "JSON格式化", "JSON对比", "关于"]:
+        for item in ["图片转 PDF", "图片批量转ZIP", "文件分割", "文件合并", "生成指定大小文件", "生成指定长度文本", "随机人员信息", "URL编码解码", "接口请求", "JSON格式化", "JSON对比", "截图识别表格", "关于"]:
             self.menu_list.insert("end", item)
         self.menu_list.pack(fill="both", expand=True, padx=8, pady=8)
         self.menu_list.bind("<<ListboxSelect>>", self._on_menu_select)
@@ -142,7 +366,7 @@ class ToolboxApp(tk.Tk):
     def _page_title(self, index):
         return ["图片转 PDF", "图片批量转 ZIP", "文件分割", "文件合并",
                 "生成指定大小文件", "生成指定长度文本", "随机人员信息",
-                "URL编码解码", "接口请求", "JSON格式化", "JSON对比", "关于"][index]
+                "URL编码解码", "接口请求", "JSON格式化", "JSON对比", "截图识别表格", "关于"][index]
 
     def _select_menu(self, index):
         self.menu_list.selection_clear(0, "end")
@@ -185,6 +409,8 @@ class ToolboxApp(tk.Tk):
                 self._show_page_json()
             elif index == 10:
                 self._show_page_jsondiff()
+            elif index == 11:
+                self._show_page_ocr_table()
             else:
                 self._show_page_about()
         else:
@@ -1081,7 +1307,299 @@ class ToolboxApp(tk.Tk):
             w.tag_remove("changed_bg", "1.0", "end")
             w.tag_remove("changed_fg", "1.0", "end")
 
-    # =============== 页面12: 关于 ===============
+    # =============== 页面12: 截图识别表格 ===============
+    def _show_page_ocr_table(self):
+        self.title_label.config(text="截图识别表格")
+
+        self._label(self.content, "点击截图或按快捷键，拖动鼠标框选表格区域，识别后自动显示结果。").pack(anchor="w", pady=(0, 8))
+
+        # 快捷键设置区域
+        hotkey_frame = tk.Frame(self.content, bg="#f5f6fa")
+        hotkey_frame.pack(fill="x", pady=(0, 8))
+
+        self._label(hotkey_frame, "全局快捷键:").pack(side="left")
+        self._ocr_hotkey_entry = tk.Entry(hotkey_frame, textvariable=self._ocr_hotkey_var, width=20)
+        self._ocr_hotkey_entry.pack(side="left", padx=8)
+        tk.Button(hotkey_frame, text="设置快捷键", command=self._ocr_set_hotkey, width=12).pack(side="left", padx=4)
+        self._label(hotkey_frame, "（需重启生效，如 Ctrl+Shift+T）").pack(side="left")
+
+        # 操作按钮区域
+        btn_frame = tk.Frame(self.content, bg="#f5f6fa")
+        btn_frame.pack(fill="x", pady=(0, 8))
+
+        tk.Button(btn_frame, text="截图", command=self._ocr_capture,
+                  bg="#3498db", fg="white",
+                  font=("Microsoft YaHei UI", 11, "bold"), width=12).pack(side="left", padx=4)
+        tk.Button(btn_frame, text="选择图片文件", command=self._ocr_select_file, width=14).pack(side="left", padx=4)
+
+        # 识别结果表格区域
+        result_label = tk.Label(self.content, text="识别结果:", bg="#f5f6fa",
+                                 font=("Microsoft YaHei UI", 10, "bold"))
+        result_label.pack(anchor="w", pady=(0, 4))
+
+        # 表格容器（带滚动条）
+        table_container = tk.Frame(self.content, bg="#f5f6fa")
+        table_container.pack(fill="both", expand=True)
+
+        self._ocr_tree_scroll_y = tk.Scrollbar(table_container, orient="vertical")
+        self._ocr_tree_scroll_y.pack(side="right", fill="y")
+
+        self._ocr_tree_scroll_x = tk.Scrollbar(table_container, orient="horizontal")
+        self._ocr_tree_scroll_x.pack(side="bottom", fill="x")
+
+        self._ocr_tree = ttk.Treeview(
+            table_container,
+            yscrollcommand=self._ocr_tree_scroll_y.set,
+            xscrollcommand=self._ocr_tree_scroll_x.set
+        )
+        self._ocr_tree.pack(fill="both", expand=True)
+
+        self._ocr_tree_scroll_y.config(command=self._ocr_tree.yview)
+        self._ocr_tree_scroll_x.config(command=self._ocr_tree.xview)
+
+        # 底部操作按钮
+        bottom_frame = tk.Frame(self.content, bg="#f5f6fa")
+        bottom_frame.pack(fill="x", pady=(8, 0))
+
+        tk.Button(bottom_frame, text="复制全部到剪贴板", command=self._ocr_copy,
+                  bg="#e67e22", fg="white",
+                  font=("Microsoft YaHei UI", 10, "bold"), width=18).pack(side="left", padx=4)
+        tk.Button(bottom_frame, text="导出Excel文件", command=self._ocr_export_excel, width=14).pack(side="left", padx=4)
+        tk.Button(bottom_frame, text="清空", command=self._ocr_clear, width=10).pack(side="left", padx=4)
+
+        # 初始化快捷键监听
+        self._init_ocr_hotkey()
+
+    def _ocr_set_hotkey(self):
+        """设置快捷键"""
+        hotkey = self._ocr_hotkey_var.get().strip()
+        if not hotkey:
+            messagebox.showwarning("提示", "请输入快捷键组合")
+            return
+        # 保存到配置文件（简单实现）
+        config_path = os.path.join(os.path.dirname(__file__), ".ocr_hotkey")
+        try:
+            with open(config_path, "w", encoding="utf-8") as f:
+                f.write(hotkey)
+            messagebox.showinfo("提示", f"快捷键已设置为: {hotkey}\n需要重启程序生效")
+        except Exception as e:
+            messagebox.showerror("错误", f"保存快捷键失败: {e}")
+
+    def _load_ocr_hotkey(self):
+        """加载保存的快捷键"""
+        config_path = os.path.join(os.path.dirname(__file__), ".ocr_hotkey")
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    return f.read().strip()
+            except:
+                pass
+        return "Ctrl+Shift+T"
+
+    def _init_ocr_hotkey(self):
+        """初始化全局快捷键监听"""
+        try:
+            from pynput import keyboard
+
+            hotkey_str = self._load_ocr_hotkey()
+            self._ocr_hotkey_var.set(hotkey_str)
+
+            # 解析快捷键
+            key_map = {
+                "ctrl": "<ctrl>", "control": "<ctrl>",
+                "shift": "<shift>",
+                "alt": "<alt>",
+                "t": "t", "T": "T",
+            }
+
+            # 转换快捷键格式
+            keys = hotkey_str.split("+")
+            pynput_keys = []
+            for key in keys:
+                key_lower = key.strip().lower()
+                if key_lower in key_map:
+                    pynput_keys.append(key_map[key_lower])
+                elif len(key.strip()) == 1:
+                    pynput_keys.append(f"<{key.strip().lower()}>")
+                else:
+                    pynput_keys.append(f"<{key.strip().lower()}>")
+
+            hotkey_combo = "+".join(pynput_keys)
+
+            def on_activate():
+                self.after(0, self._ocr_capture)
+
+            self._ocr_listener = keyboard.GlobalHotKeys({hotkey_combo: on_activate})
+            self._ocr_listener.daemon = True
+            self._ocr_listener.start()
+
+        except ImportError:
+            self._log("提示: 安装 pynput 可启用全局快捷键 (pip install pynput)\n")
+        except Exception as e:
+            self._log(f"快捷键设置失败: {e}\n")
+
+    def _ocr_capture(self):
+        """截图功能"""
+        # 隐藏主窗口
+        self.withdraw()
+        self.update()
+        import time
+        time.sleep(0.2)
+
+        def on_region_selected(image):
+            # 恢复主窗口
+            self.deiconify()
+            self.update()
+
+            if image is None:
+                return
+
+            self._ocr_image = image
+            self._log("截图完成，正在识别表格...\n")
+            self._start_task(self._ocr_do_recognize, image,
+                             on_done=self._ocr_on_recognize_done)
+
+        capture_region(parent=self, callback=on_region_selected)
+
+    def _ocr_select_file(self):
+        """选择图片文件"""
+        f = filedialog.askopenfilename(
+            title="选择图片文件",
+            filetypes=[("图片文件", "*.jpg *.jpeg *.png *.bmp *.tiff *.tif *.gif")]
+        )
+        if f:
+            try:
+                image = Image.open(f)
+                self._ocr_image = image
+                self._log(f"已加载图片: {os.path.basename(f)}，正在识别表格...\n")
+                self._start_task(self._ocr_do_recognize, image,
+                                 on_done=self._ocr_on_recognize_done)
+            except Exception as e:
+                messagebox.showerror("错误", f"打开图片失败: {e}")
+
+    def _ocr_do_recognize(self, image):
+        """执行表格识别（在后台线程中运行）"""
+        table_data, html = recognize_table(image)
+        return table_data
+
+    def _ocr_on_recognize_done(self, result):
+        """识别完成回调"""
+        if result is None:
+            self._log("识别失败或未识别到表格\n")
+            return
+
+        self._ocr_table_data = result
+
+        if not result:
+            self._log("未识别到表格内容\n")
+            return
+
+        # 更新Treeview
+        self._ocr_update_tree(result)
+        self._log(f"识别完成，共 {len(result)} 行\n")
+
+    def _ocr_update_tree(self, table_data):
+        """更新Treeview表格显示"""
+        # 清空旧数据
+        self._ocr_tree.delete(*self._ocr_tree.get_children())
+
+        if not table_data:
+            return
+
+        # 设置列（使用第一行作为列标题）
+        headers = table_data[0] if table_data else []
+        col_count = len(headers) if headers else 0
+
+        if col_count == 0:
+            return
+
+        # 配置列
+        self._ocr_tree["columns"] = [f"col{i}" for i in range(col_count)]
+        self._ocr_tree["show"] = "headings"
+
+        for i, header in enumerate(headers):
+            col_id = f"col{i}"
+            self._ocr_tree.heading(col_id, text=header, anchor="w")
+            self._ocr_tree.column(col_id, width=120, minwidth=80, anchor="w")
+
+        # 插入数据行（跳过第一行表头）
+        for row in table_data[1:]:
+            # 确保每行列数一致
+            values = row + [""] * (col_count - len(row))
+            values = values[:col_count]
+            self._ocr_tree.insert("", "end", values=values)
+
+    def _ocr_copy(self):
+        """复制表格到剪贴板"""
+        if not self._ocr_table_data:
+            self._notify("没有可复制的数据")
+            return
+
+        tsv = table_data_to_tsv(self._ocr_table_data)
+        self.clipboard_clear()
+        self.clipboard_append(tsv)
+        self._notify("已复制到剪贴板，可直接粘贴到Excel")
+
+    def _ocr_export_excel(self):
+        """导出为Excel文件"""
+        if not self._ocr_table_data:
+            self._notify("没有可导出的数据")
+            return
+
+        try:
+            import openpyxl
+        except ImportError:
+            # 如果没有openpyxl，生成CSV文件
+            return self._ocr_export_csv()
+
+        f = filedialog.asksaveasfilename(
+            title="导出Excel文件",
+            defaultextension=".xlsx",
+            filetypes=[("Excel文件", "*.xlsx"), ("所有文件", "*.*")]
+        )
+        if not f:
+            return
+
+        try:
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "识别结果"
+
+            for row in self._ocr_table_data:
+                ws.append(row)
+
+            wb.save(f)
+            self._log(f"已导出Excel: {f}\n")
+        except Exception as e:
+            messagebox.showerror("错误", f"导出失败: {e}")
+
+    def _ocr_export_csv(self):
+        """导出为CSV文件（备选方案）"""
+        f = filedialog.asksaveasfilename(
+            title="导出CSV文件",
+            defaultextension=".csv",
+            filetypes=[("CSV文件", "*.csv"), ("所有文件", "*.*")]
+        )
+        if not f:
+            return
+
+        try:
+            import csv
+            with open(f, "w", newline="", encoding="utf-8-sig") as csvfile:
+                writer = csv.writer(csvfile)
+                for row in self._ocr_table_data:
+                    writer.writerow(row)
+            self._log(f"已导出CSV: {f}\n")
+        except Exception as e:
+            messagebox.showerror("错误", f"导出失败: {e}")
+
+    def _ocr_clear(self):
+        """清空数据"""
+        self._ocr_table_data = []
+        self._ocr_image = None
+        self._ocr_tree.delete(*self._ocr_tree.get_children())
+
+    # =============== 页面13: 关于 ===============
     def _show_page_about(self):
         self.title_label.config(text="关于")
         info = (
@@ -1097,7 +1615,8 @@ class ToolboxApp(tk.Tk):
             "  8. URL编码解码 - 文本的URL百分号编码与解码\n"
             "  9. 接口请求 - 发送GET/POST请求查看响应\n"
             "  10. JSON格式化 - JSON美化/压缩为字符串\n"
-            "  11. JSON对比 - 排序后逐字符对比，标注差异\n\n"
+            "  11. JSON对比 - 排序后逐字符对比，标注差异\n"
+            "  12. 截图识别表格 - 截图识别表格并导出到Excel\n\n"
             "使用方法:\n"
             "  左侧选择功能，右侧填写参数后点击开始按钮。\n"
         )
@@ -1110,6 +1629,12 @@ class ToolboxApp(tk.Tk):
         if self._running:
             if not messagebox.askyesno("退出", "有任务正在运行，确定退出吗？"):
                 return
+        # 停止快捷键监听
+        if self._ocr_listener:
+            try:
+                self._ocr_listener.stop()
+            except:
+                pass
         self.destroy()
 
 
