@@ -108,10 +108,12 @@ _OCR_MODEL_CHOICE = _load_ocr_model_choice()
 
 def _ocr_model_dir(name):
     """模型文件所在目录：优先当前模型源（内置或已更新的外部目录），其次外部目录。
-    可选模型（server 等）只存在于外部目录。找不到返回 None。"""
+    可选模型（server 等）只存在于外部目录。找不到返回 None。
+    完整性校验（目录含 inference.yml）：下载中断会留下半成品目录，
+    若只判 isdir 会误判"已就绪"，随后流水线加载报晦涩错误。"""
     for root in (_MODELS_DIR, _EXTERNAL_MODELS_DIR):
         d = os.path.join(root, "official_models", name)
-        if os.path.isdir(d):
+        if os.path.isfile(os.path.join(d, "inference.yml")):
             return d
     return None
 
@@ -164,9 +166,7 @@ _pdx_deps.is_extra_available = lambda extra: True
 _pdx_deps.is_dep_available = lambda dep, check_version=False: True
 
 import re
-import io
 import logging
-import tempfile
 import threading
 import traceback
 import contextlib
@@ -209,7 +209,7 @@ def _get_table_pipeline():
         return _TABLE_PIPELINE
     # 锁被占用说明预热线程正在加载：给出提示再等待，避免静默阻塞
     if not _TABLE_PIPELINE_LOCK.acquire(blocking=False):
-        print("[模型] 正在等待后台模型加载完成（首次约1-3分钟），请稍候...")
+        print("[模型] 正在等待后台模型加载完成（mobile 模型数秒、server 模型约1-3分钟），请稍候...")
         _TABLE_PIPELINE_LOCK.acquire()
     try:
         if _TABLE_PIPELINE is None or _TABLE_PIPELINE_KEY != key:
@@ -639,6 +639,10 @@ class RegionSelector(tk.Toplevel):
         self._draw_dim_and_border(x1, y1, x2, y2)
 
     def _on_release(self, event):
+        # 背景未就绪时 _on_press 被忽略：release 也必须忽略，
+        # 否则会以 (0,0) 为起点算出用户从未拖出的幻影选区
+        if self._screen_img is None:
+            return
         x1 = min(self.start_x, event.x)
         y1 = min(self.start_y, event.y)
         x2 = max(self.start_x, event.x)
@@ -697,9 +701,6 @@ class RegionSelector(tk.Toplevel):
             self.callback(None)
         self.destroy()
 
-    def get_image(self):
-        return self._result_image
-
 
 def capture_region(parent=None, callback=None):
     """弹出区域选择窗口，确认截图后通过callback返回PIL.Image，取消返回None"""
@@ -709,17 +710,10 @@ def capture_region(parent=None, callback=None):
 
 def recognize_table(image_path_or_pil):
     """识别图片中的表格（使用paddlex table_recognition流水线）"""
-    try:
-        import cv2
-    except ImportError:
-        raise ImportError("缺少 opencv-python 库，请运行: pip install opencv-python")
-
     import numpy as np
-    import cv2 as _cv2
     import time
 
     predict_input = image_path_or_pil
-    temp_file = None
     if isinstance(image_path_or_pil, Image.Image):
         w, h = image_path_or_pil.size
         print(f"[识别] 输入图像 {w}x{h}")
@@ -731,46 +725,42 @@ def recognize_table(image_path_or_pil):
             print("[识别] 图像较小，已放大 2 倍以提高识别准确率")
         # 直接转 BGR ndarray 喂给流水线，避免临时 PNG 的编码+磁盘读写开销
         rgb = np.asarray(image_path_or_pil.convert("RGB"))
-        predict_input = _cv2.cvtColor(rgb, _cv2.COLOR_RGB2BGR)
+        predict_input = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
 
-    try:
-        # 复用全局缓存的流水线，避免每次识别都重新加载模型（首次加载可能需数十秒）
-        pipeline = _get_table_pipeline()
-        t0 = time.time()
-        # 截图模式：用户已框选表格区域，整张图就是表格——
-        # 双重保险：流水线创建时已不加载这三个子模型（见 _get_table_pipeline），
-        # 此处再显式关闭推理开关（截图不存在旋转/弯曲，也无需检测版面）
-        output = list(pipeline.predict(
-            input=predict_input,
-            use_doc_orientation_classify=False,
-            use_doc_unwarping=False,
-            use_layout_detection=False,
-        ))
-        print(f"[识别] 推理完成，用时 {time.time() - t0:.1f} 秒，正在解析结果...")
+    # 复用全局缓存的流水线，避免每次识别都重新加载模型（首次加载可能需数十秒）
+    pipeline = _get_table_pipeline()
+    t0 = time.time()
+    # 截图模式：用户已框选表格区域，整张图就是表格——
+    # 双重保险：流水线创建时已不加载这三个子模型（见 _get_table_pipeline），
+    # 此处再显式关闭推理开关（截图不存在旋转/弯曲，也无需检测版面）
+    output = list(pipeline.predict(
+        input=predict_input,
+        use_doc_orientation_classify=False,
+        use_doc_unwarping=False,
+        use_layout_detection=False,
+    ))
+    print(f"[识别] 推理完成，用时 {time.time() - t0:.1f} 秒，正在解析结果...")
 
-        all_table_data = []
-        html_parts = []
+    all_table_data = []
+    html_parts = []
 
-        for res in output:
-            html_dict = res.html if hasattr(res, 'html') else {}
-            if isinstance(html_dict, dict):
-                for key, html_str in html_dict.items():
-                    if html_str:
-                        html_parts.append(html_str)
-                        table_data = html_to_table_data(html_str)
-                        if table_data:
-                            all_table_data.extend(table_data)
-            elif isinstance(html_dict, str) and html_dict:
-                html_parts.append(html_dict)
-                table_data = html_to_table_data(html_dict)
-                if table_data:
-                    all_table_data.extend(table_data)
+    for res in output:
+        html_dict = res.html if hasattr(res, 'html') else {}
+        if isinstance(html_dict, dict):
+            for key, html_str in html_dict.items():
+                if html_str:
+                    html_parts.append(html_str)
+                    table_data = html_to_table_data(html_str)
+                    if table_data:
+                        all_table_data.extend(table_data)
+        elif isinstance(html_dict, str) and html_dict:
+            html_parts.append(html_dict)
+            table_data = html_to_table_data(html_dict)
+            if table_data:
+                all_table_data.extend(table_data)
 
-        combined_html = "\n".join(html_parts) if html_parts else ""
-        return all_table_data, combined_html
-
-    finally:
-        pass
+    combined_html = "\n".join(html_parts) if html_parts else ""
+    return all_table_data, combined_html
 
 
 # CJK 字符与中文标点（用于单元格文本归一化）
@@ -849,22 +839,6 @@ def html_to_table_data(html):
             rows.append(cells)
 
     return rows
-
-
-def table_data_to_html(table_data):
-    """将二维列表转换为HTML表格"""
-    if not table_data:
-        return ""
-
-    html = '<table border="1">\n'
-    for i, row in enumerate(table_data):
-        html += "  <tr>\n"
-        tag = "th" if i == 0 else "td"
-        for cell in row:
-            html += f"    <{tag}>{cell}</{tag}>\n"
-        html += "  </tr>\n"
-    html += "</table>"
-    return html
 
 
 def table_data_to_tsv(table_data):
@@ -960,11 +934,15 @@ class ToolboxApp(tk.Tk):
         # OCR表格识别相关变量
         self._ocr_hotkey_var = tk.StringVar(value="Ctrl+Shift+T")
         self._ocr_table_data = []
-        self._ocr_image = None
         self._ocr_listener = None
+        self._ocr_selecting = False   # 区域选择器已打开（防快捷键重入）
+        self._ocr_downloading = None  # 正在后台下载的模型 label（防重复下载）
 
         self._build_ui()
         self._select_menu(0)
+        # 全局快捷键启动即生效：页面是懒构建的，若只在 OCR 页初始化，
+        # 用户不访问该页则快捷键永远不会激活
+        self._init_ocr_hotkey()
 
     # ---------------- UI 搭建 ----------------
     def _build_ui(self):
@@ -1123,14 +1101,20 @@ class ToolboxApp(tk.Tk):
             if not chunk:
                 continue
             if "\n" in chunk:
+                # 进度行没有结尾换行，后到的普通日志需先补一个，
+                # 否则两者会粘连成一行（如 "30%识别完成"）
+                if getattr(self, "_progress_tail", False):
+                    self._progress_tail = False
+                    chunk = "\n" + chunk
                 for line in chunk.split("\n"):
                     self._log(line + "\n")
             else:
-                # \r 进度行：替换控件中的最后一行
+                # \r 进度行：替换控件中的最后一行（无结尾换行，标记待补）
                 self.log.config(state="normal")
                 self.log.delete("end-1l", "end")
                 self._append_log_text(chunk)
                 self.log.config(state="disabled")
+                self._progress_tail = True
 
     def _notify(self, text):
         """用日志代替弹窗提示"""
@@ -2043,9 +2027,6 @@ class ToolboxApp(tk.Tk):
         tk.Button(bottom_frame, text="导出Excel文件", command=self._ocr_export_excel, width=14).pack(side="left", padx=4)
         tk.Button(bottom_frame, text="清空", command=self._ocr_clear, width=10).pack(side="left", padx=4)
 
-        # 初始化快捷键监听
-        self._init_ocr_hotkey()
-
     def _ocr_set_hotkey(self):
         """设置快捷键（校验后立即生效，无需重启；结果只在日志中提示，不弹窗）"""
         hotkey = self._ocr_hotkey_var.get().strip()
@@ -2087,6 +2068,16 @@ class ToolboxApp(tk.Tk):
             self._notify(f"识别模型已切换: {label}（立即生效），正在后台加载...")
             threading.Thread(target=_prewarm_pipeline_worker, daemon=True).start()
             return
+        # 已有同模型下载在进行中：不重复下载（并发写同一目录会导致文件损坏）
+        if self._ocr_downloading == label:
+            self._notify(f"模型 {label} 正在下载中，请等待完成")
+            return
+        if self._ocr_downloading is not None:
+            self._notify(f"正在下载 {self._ocr_downloading}，请等待完成后再切换其他模型")
+            self._ocr_model_var.set(_OCR_MODEL_CHOICE)
+            self._ocr_model_desc.config(
+                text=_OCR_MODEL_OPTIONS[_OCR_MODEL_CHOICE]["desc"])
+            return
         if not messagebox.askyesno(
                 "下载模型",
                 f"模型 {label} 尚未下载（约 {opt['size_mb']} MB）。\n"
@@ -2097,17 +2088,28 @@ class ToolboxApp(tk.Tk):
             self._ocr_model_desc.config(
                 text=_OCR_MODEL_OPTIONS[_OCR_MODEL_CHOICE]["desc"])
             return
+        self._ocr_downloading = label
         threading.Thread(target=self._download_model_worker,
                          args=(label, missing), daemon=True).start()
 
     def _download_model_worker(self, label, missing):
         """后台线程：下载所选模型到外部目录，全部成功后切换生效并预热"""
+        global _OCR_MODEL_CHOICE
         opt = _OCR_MODEL_OPTIONS[label]
+        # 下载开始时的选择快照：下载期间用户可能已切换到其他模型，
+        # 完成后若直接覆盖会推翻用户的 newer 选择
+        orig_choice = _OCR_MODEL_CHOICE
 
         def notify(text):
             # _notify 直接操作 Tk 控件，非主线程必须经 after 调度
             try:
                 self.after(0, lambda t=text: self._notify(t))
+            except Exception:
+                pass
+
+        def reset_downloading():
+            try:
+                self.after(0, lambda: setattr(self, "_ocr_downloading", None))
             except Exception:
                 pass
 
@@ -2119,12 +2121,24 @@ class ToolboxApp(tk.Tk):
                 notify(f"模型 {name} 下载完成")
             except Exception as e:
                 logging.error(f"[模型下载] {name} 失败: {e}\n{traceback.format_exc()}")
+                # 删除半成品目录：残缺目录会被误认为已就绪（_ocr_model_dir 校验
+                # inference.yml 也是为此），下次选择将重新走下载流程
+                import shutil
+                shutil.rmtree(
+                    os.path.join(_EXTERNAL_MODELS_DIR, "official_models", name),
+                    ignore_errors=True)
                 notify(f"模型 {name} 下载失败: {e}（可稍后在\"识别模型\"中重试）")
+                reset_downloading()
                 return
-        global _OCR_MODEL_CHOICE
+        if _OCR_MODEL_CHOICE != orig_choice:
+            notify(f"模型 {label} 已下载完成（下载期间已切换为其他模型，"
+                   "可稍后在\"识别模型\"中选择使用）")
+            reset_downloading()
+            return
         _OCR_MODEL_CHOICE = label
         _save_ocr_model_choice(label)
         notify(f"识别模型已切换: {label}（立即生效），正在后台加载...")
+        reset_downloading()
         threading.Thread(target=_prewarm_pipeline_worker, daemon=True).start()
 
     def _load_ocr_hotkey(self):
@@ -2188,6 +2202,14 @@ class ToolboxApp(tk.Tk):
 
     def _ocr_capture(self):
         """截图功能"""
+        # 识别任务运行中：新截图的结果无处安放，直接提示
+        if self._running:
+            self._notify("识别任务正在进行中，请等待完成后再截图")
+            return
+        # 选择器已打开（连按两次快捷键）：忽略重复触发，避免叠出两个全屏选择器
+        if self._ocr_selecting:
+            return
+        self._ocr_selecting = True
         # 隐藏主窗口
         self.withdraw()
         self.update()
@@ -2195,6 +2217,7 @@ class ToolboxApp(tk.Tk):
         time.sleep(0.2)
 
         def on_region_selected(image):
+            self._ocr_selecting = False
             # 恢复主窗口
             self.deiconify()
             self.update()
@@ -2202,7 +2225,6 @@ class ToolboxApp(tk.Tk):
             if image is None:
                 return
 
-            self._ocr_image = image
             # 注意：提示语必须在 _start_task 之后写——_start_task 会清空日志面板，
             # 先写会被清掉（曾导致识别期间面板空白）
             self._start_task(self._ocr_do_recognize, image,
@@ -2220,7 +2242,6 @@ class ToolboxApp(tk.Tk):
         if f:
             try:
                 image = Image.open(f)
-                self._ocr_image = image
                 # 提示语在 _start_task 之后写，避免被其清空日志面板
                 self._start_task(self._ocr_do_recognize, image,
                                  on_done=self._ocr_on_recognize_done)
@@ -2361,7 +2382,6 @@ class ToolboxApp(tk.Tk):
     def _ocr_clear(self):
         """清空数据"""
         self._ocr_table_data = []
-        self._ocr_image = None
         self._ocr_tree.delete(*self._ocr_tree.get_children())
 
     # =============== 页面13: 关于 ===============
@@ -2405,7 +2425,7 @@ class ToolboxApp(tk.Tk):
 
 def _prewarm_model_worker(app):
     """后台预热：程序启动后立即加载表格识别模型。
-    模型加载非常耗时（exe 下从临时目录读取+CPU 初始化约1-3分钟），
+    mobile 模型加载仅需数秒；server 模型较慢（exe 下约1-3分钟）。
     预热后用户截图识别可立即返回，避免识别期间长时间等待被误认为无响应。"""
     import time
 
@@ -2416,7 +2436,7 @@ def _prewarm_model_worker(app):
             pass
 
     time.sleep(8)  # 避开启动高峰（onefile 解压、GUI 初始化、更新检查）
-    notify("正在后台加载表格识别模型（约1-3分钟），期间可正常使用其他功能...")
+    notify(f"正在后台加载表格识别模型（{_OCR_MODEL_CHOICE}），期间可正常使用其他功能...")
     try:
         # 注意：这里不能用 redirect_stdout 吞 paddlex 的加载输出——
         # redirect_stdout 是进程级全局替换，会把并发识别任务的日志一起吞掉
