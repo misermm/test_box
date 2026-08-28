@@ -35,8 +35,67 @@ from json_fmt import json_format, json_compact, json_sort, json_diff_spans
 
 # ==================== 截图表格识别模块 ====================
 
+# 流水线全局缓存：模型加载非常耗时，只加载一次供后续复用
+_TABLE_PIPELINE = None
+_TABLE_PIPELINE_LOCK = threading.Lock()
+
+
+def _get_table_pipeline():
+    """获取表格识别流水线（懒加载 + 线程安全 + 全局缓存）"""
+    global _TABLE_PIPELINE
+    if _TABLE_PIPELINE is None:
+        with _TABLE_PIPELINE_LOCK:
+            if _TABLE_PIPELINE is None:
+                from paddlex import create_pipeline
+                print("正在加载识别模型（仅首次）...")
+                _TABLE_PIPELINE = create_pipeline(pipeline='table_recognition')
+                print("模型加载完成")
+    return _TABLE_PIPELINE
+
+
+class ConfirmToolbar(tk.Toplevel):
+    """框选完成后浮动的确认工具条：√ 确认识别 / X 取消"""
+
+    def __init__(self, parent, x, y, on_confirm, on_cancel):
+        super().__init__(parent)
+        self.overrideredirect(True)
+        self.attributes("-topmost", True)
+        self.configure(bg="#1e6fd9")
+
+        btn_ok = tk.Label(self, text="✔", font=("Segoe UI Symbol", 15, "bold"),
+                          fg="white", bg="#1e6fd9", width=3, cursor="hand2")
+        btn_ok.pack(side="left", padx=(2, 0), pady=3)
+        btn_cancel = tk.Label(self, text="✘", font=("Segoe UI Symbol", 15, "bold"),
+                              fg="white", bg="#1e6fd9", width=3, cursor="hand2")
+        btn_cancel.pack(side="left", padx=(0, 2), pady=3)
+
+        btn_ok.bind("<Button-1>", lambda e: on_confirm())
+        btn_cancel.bind("<Button-1>", lambda e: on_cancel())
+        # 悬停高亮
+        btn_ok.bind("<Enter>", lambda e: btn_ok.config(bg="#36d399"))
+        btn_ok.bind("<Leave>", lambda e: btn_ok.config(bg="#1e6fd9"))
+        btn_cancel.bind("<Enter>", lambda e: btn_cancel.config(bg="#f87272"))
+        btn_cancel.bind("<Leave>", lambda e: btn_cancel.config(bg="#1e6fd9"))
+
+        self.update_idletasks()
+        w, h = self.winfo_reqwidth(), self.winfo_reqheight()
+        # 工具条显示在选区右下角，越界时自动收回屏幕内
+        sw = parent.winfo_screenwidth()
+        sh = parent.winfo_screenheight()
+        px = min(max(0, x), sw - w)
+        py = min(max(0, y), sh - h)
+        self.geometry(f"+{px}+{py}")
+        self.lift()
+
+    def dismiss(self):
+        try:
+            self.destroy()
+        except Exception:
+            pass
+
+
 class RegionSelector(tk.Toplevel):
-    """全屏遮罩 + 鼠标拖拽选区"""
+    """全屏遮罩 + 鼠标拖拽选区：选区内保持明亮原样，选区外暗淡，蓝色实线边框"""
 
     def __init__(self, parent=None, callback=None):
         super().__init__(parent)
@@ -45,25 +104,65 @@ class RegionSelector(tk.Toplevel):
         self.start_y = 0
         self.rect_id = None
         self._result_image = None
+        self._toolbar = None
+        self._sel_coords = None
+
+        self._overlay_ids = []
+        self._screen_img = None   # 稍后异步抓取
+        self._orig_img = None     # 原始物理像素截图
+        self._scale_x = 1.0       # 物理像素 / 逻辑坐标（DPI 缩放修正）
+        self._scale_y = 1.0
 
         # 全屏无边框窗口
         self.attributes("-fullscreen", True)
         self.attributes("-topmost", True)
-        self.configure(bg="black")
-        self.attributes("-alpha", 0.3)
 
-        # Canvas 用于绘制选框
-        self.canvas = tk.Canvas(self, cursor="cross", bg="black", highlightthickness=0)
+        self.canvas = tk.Canvas(self, cursor="cross", bg="black",
+                                highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
 
-        # 提示文字
-        self.canvas.create_text(
+        # 提示文字（先显示加载提示）
+        hint_id = self.canvas.create_text(
             self.winfo_screenwidth() // 2,
             30,
-            text="拖动鼠标框选表格区域，松开鼠标确认 | 按 ESC 取消",
+            text="拖动鼠标框选表格区域 | 松开后点 ✔ 识别 / ✘ 取消 | 按 ESC 取消",
             fill="white",
             font=("Microsoft YaHei UI", 14, "bold"),
         )
+        self._hint_id = hint_id
+        # 先让窗口显示出来，再异步抓取屏幕，避免打开截图时界面卡顿无响应
+        self.after(30, self._prepare_background)
+
+    def _prepare_background(self):
+        """窗口显示后抓取整屏并铺底图（含 DPI 缩放比例记录）"""
+        try:
+            vw, vh = max(1, self.winfo_vrootwidth()), max(1, self.winfo_vrootheight())
+            # 抓屏期间隐藏自身，避免把遮罩窗口本身拍进截图
+            self.withdraw()
+            self.update()
+            orig = ImageGrab.grab(all_screens=True)
+            self.deiconify()
+            self.lift()
+            sw, sh = orig.size
+            self._scale_x = sw / vw
+            self._scale_y = sh / vh
+            if (sw, sh) != (vw, vh):
+                shot = orig.resize((vw, vh))
+            else:
+                shot = orig
+            self._orig_img = orig      # 保留原始物理像素截图用于裁剪
+            self._photo = ImageTk.PhotoImage(shot, master=self)
+            self._screen_img = shot
+            self.canvas.delete("all")
+            self.canvas.create_image(0, 0, image=self._photo, anchor="nw")
+            self.canvas.create_text(
+                self.winfo_screenwidth() // 2, 30,
+                text="拖动鼠标框选表格区域 | 松开后点 ✔ 识别 / ✘ 取消 | 按 ESC 取消",
+                fill="white",
+                font=("Microsoft YaHei UI", 14, "bold"),
+            )
+        except Exception:
+            self.finish(None)
 
         # 绑定事件
         self.canvas.bind("<ButtonPress-1>", self._on_press)
@@ -71,19 +170,52 @@ class RegionSelector(tk.Toplevel):
         self.canvas.bind("<ButtonRelease-1>", self._on_release)
         self.bind("<Escape>", self._on_cancel)
 
+    def _clear_overlays(self):
+        for item in self._overlay_ids:
+            self.canvas.delete(item)
+        self._overlay_ids.clear()
+
+    def _draw_dim_and_border(self, x1, y1, x2, y2):
+        """用四块半透明黑色矩形盖住选区外部，再加蓝色实线边框"""
+        self._clear_overlays()
+        W = self.winfo_screenwidth()
+        H = self.winfo_screenheight()
+        opts = dict(fill="black", stipple="gray50", outline="")
+        c = self.canvas
+        self._overlay_ids = [
+            c.create_rectangle(0, 0, W, y1, **opts),
+            c.create_rectangle(0, y2, W, H, **opts),
+            c.create_rectangle(0, y1, x1, y2, **opts),
+            c.create_rectangle(x2, y1, W, y2, **opts),
+            c.create_rectangle(x1, y1, x2, y2, outline="#1e6fd9",
+                               width=2),
+        ]
+
+    def _hide_toolbar(self):
+        if self._toolbar is not None:
+            self._toolbar.dismiss()
+            self._toolbar = None
+
     def _on_press(self, event):
+        if self._screen_img is None:
+            return
+        self._hide_toolbar()
+        self._sel_coords = None
         self.start_x = event.x
         self.start_y = event.y
         if self.rect_id:
             self.canvas.delete(self.rect_id)
         self.rect_id = self.canvas.create_rectangle(
             self.start_x, self.start_y, self.start_x, self.start_y,
-            outline="red", width=2, dash=(5, 3)
+            outline="#1e6fd9", width=2
         )
+        # 拖动过程中清掉旧的暗淡遮罩
+        self._clear_overlays()
 
     def _on_drag(self, event):
         if self.rect_id:
-            self.canvas.coords(self.rect_id, self.start_x, self.start_y, event.x, event.y)
+            self.canvas.coords(self.rect_id,
+                               self.start_x, self.start_y, event.x, event.y)
 
     def _on_release(self, event):
         x1 = min(self.start_x, event.x)
@@ -98,20 +230,48 @@ class RegionSelector(tk.Toplevel):
             self._on_cancel()
             return
 
+        self._sel_coords = (x1, y1, x2, y2)
+        self._draw_dim_and_border(x1, y1, x2, y2)
+        self._toolbar = ConfirmToolbar(
+            self, x2 + 6, y2 + 6,
+            on_confirm=self._confirm_selection,
+            on_cancel=lambda: self.finish(None),
+        )
+
+    def _confirm_selection(self):
+        if not self._sel_coords:
+            self.finish(None)
+            return
+        x1, y1, x2, y2 = self._sel_coords
+        # 显示层为逻辑坐标，原始截屏为物理像素：按缩放比例换算后再裁剪，
+        # 修复高 DPI 屏幕下"选的区和得到的图不一致"的问题
+        img = None
+        if abs(self._scale_x - 1.0) > 1e-6 or abs(self._scale_y - 1.0) > 1e-6:
+            # 显示层是逻辑坐标、原始截图是物理像素：按比例换算后从原始截图裁剪，
+            # 保证高 DPI 屏幕下"选的区"与"得到的图"完全一致且保持原生分辨率
+            base = self._orig_img
+            px1 = round(x1 * self._scale_x); py1 = round(y1 * self._scale_y)
+            px2 = round(x2 * self._scale_x); py2 = round(y2 * self._scale_y)
+            px1, py1 = max(0, min(px1, base.width - 1)), max(0, min(py1, base.height - 1))
+            px2, py2 = max(1, min(px2, base.width)), max(1, min(py2, base.height))
+            img = base.crop((px1, py1, px2, py2))
+        elif self._screen_img is not None:
+            img = self._screen_img.crop((x1, y1, x2, y2))
+        self._result_image = img
+        self.finish(img)
+
+    def finish(self, image):
+        """统一出口：隐藏窗口后回调"""
         self.withdraw()
         self.update()
-
-        # 截取选区
-        screenshot = ImageGrab.grab(bbox=(x1, y1, x2, y2))
-        self._result_image = screenshot
-
+        self._hide_toolbar()
         if self.callback:
-            self.callback(screenshot)
-
+            self.callback(image)
         self.destroy()
 
     def _on_cancel(self, event=None):
         self._result_image = None
+        self._hide_toolbar()
         if self.callback:
             self.callback(None)
         self.destroy()
@@ -121,7 +281,7 @@ class RegionSelector(tk.Toplevel):
 
 
 def capture_region(parent=None, callback=None):
-    """弹出区域选择窗口，截图后通过callback返回PIL.Image"""
+    """弹出区域选择窗口，确认截图后通过callback返回PIL.Image，取消返回None"""
     selector = RegionSelector(parent=parent, callback=callback)
     return selector
 
@@ -133,22 +293,21 @@ def recognize_table(image_path_or_pil):
         import cv2
     except ImportError:
         raise ImportError("缺少 opencv-python 库，请运行: pip install opencv-python")
-    from paddlex import create_pipeline
 
+    import numpy as np
+    import cv2 as _cv2
+
+    predict_input = image_path_or_pil
     temp_file = None
     if isinstance(image_path_or_pil, Image.Image):
-        temp_file = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
-        image_path_or_pil.save(temp_file.name)
-        temp_file.close()
-        image_path = temp_file.name
-    else:
-        image_path = image_path_or_pil
+        # 直接转 BGR ndarray 喂给流水线，避免临时 PNG 的编码+磁盘读写开销
+        rgb = np.asarray(image_path_or_pil.convert("RGB"))
+        predict_input = _cv2.cvtColor(rgb, _cv2.COLOR_RGB2BGR)
 
     try:
-        print("正在加载识别模型...")
-        pipeline = create_pipeline(pipeline='table_recognition')
-        print("模型加载完成，开始识别表格...")
-        output = list(pipeline.predict(input=image_path))
+        # 复用全局缓存的流水线，避免每次识别都重新加载模型（首次加载可能需数十秒）
+        pipeline = _get_table_pipeline()
+        output = list(pipeline.predict(input=predict_input))
         print("识别完成，正在解析结果...")
 
         all_table_data = []
@@ -173,11 +332,7 @@ def recognize_table(image_path_or_pil):
         return all_table_data, combined_html
 
     finally:
-        if temp_file:
-            try:
-                os.unlink(temp_file.name)
-            except OSError:
-                pass
+        pass
 
 
 def html_to_table_data(html):
