@@ -26,13 +26,14 @@ _EXTERNAL_MODELS_DIR = os.path.join(
     os.environ.get('LOCALAPPDATA', _APP_DIR), "TestToolbox", "models")
 
 # 表格识别流水线所需的全部官方模型名
-# 截图场景瘦身：截图无旋转/弯曲、用户已框选表格区域，
-# 不加载 doc_ori（方向矫正）/ UVDoc（去畸变）/ PP-DocLayout-L（版面检测），
-# 仅保留表格结构 + OCR 共 3 个模型（exe 体积约减 160MB，加载更快）
+# 截图场景瘦身：
+# 1. 截图无旋转/弯曲、用户已框选表格区域，不加载 doc_ori/UVDoc/PP-DocLayout-L
+# 2. OCR 用 mobile 版（server 版为精度设计，CPU 单次推理 ~90 秒；
+#    mobile 版实测同一截图 4 秒且识别结果一致，截图为数字原生图像精度足够）
 _TABLE_MODEL_NAMES = [
     "SLANet_plus",
-    "PP-OCRv4_server_det",
-    "PP-OCRv4_server_rec_doc",
+    "PP-OCRv4_mobile_det",
+    "PP-OCRv4_mobile_rec",
 ]
 _BOS_MODEL_BASE = ("https://paddle-model-ecology.bj.bcebos.com/paddlex/"
                    "official_inference_model/paddle3.0.0")
@@ -142,14 +143,20 @@ def _get_table_pipeline():
                 print(f"[模型] 模型源: {os.environ.get('PADDLE_PDX_MODEL_SOURCE')}，"
                       f"联网检查: {'跳过' if os.environ.get('PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK') else '开启'}")
                 try:
-                    # 截图场景精简流水线：通过配置关闭文档预处理（方向/弯曲矫正）
-                    # 与版面检测子模型——三者根本不加载（而非仅跳过推理），
-                    # 显著缩短模型加载时间并降低内存占用
+                    # 截图场景精简流水线：
+                    # 1. 关闭文档预处理（方向/弯曲矫正）与版面检测子模型
+                    #    ——三者根本不加载（而非仅跳过推理）
+                    # 2. OCR 子模型换 mobile 版（server 版 CPU 推理 ~90 秒，
+                    #    mobile 实测 4 秒且截图场景识别结果一致）
                     from paddlex.inference.pipelines import load_pipeline_config
                     _slim_cfg = load_pipeline_config('table_recognition')
                     _slim_cfg['use_doc_preprocessor'] = False
                     _slim_cfg['use_layout_detection'] = False
-                    print("[模型] 使用精简流水线（已跳过方向矫正/去畸变/版面检测模型）")
+                    _ocr_sub = _slim_cfg['SubPipelines']['GeneralOCR']['SubModules']
+                    _ocr_sub['TextDetection']['model_name'] = 'PP-OCRv4_mobile_det'
+                    _ocr_sub['TextRecognition']['model_name'] = 'PP-OCRv4_mobile_rec'
+                    print("[模型] 使用精简流水线（跳过方向矫正/去畸变/版面检测，"
+                          "OCR 采用 mobile 模型）")
                     _TABLE_PIPELINE = create_pipeline(
                         pipeline='table_recognition', config=_slim_cfg)
                 except Exception:
@@ -774,6 +781,11 @@ class ToolboxApp(tk.Tk):
                             font=("Microsoft YaHei UI", 12, "bold"))
         self.log.tag_config("err", foreground="#e74c3c",
                             font=("Microsoft YaHei UI", 12, "bold"))
+        # Windows 下滚轮事件只发给焦点控件，而 disabled 的 Text 无法通过点击获得焦点，
+        # 导致鼠标悬停在日志上滚动无效——鼠标进入时主动接管焦点即可滚动查看日志
+        self.log.bind("<Enter>", lambda e: self.log.focus_set())
+        self.log.bind("<MouseWheel>",
+                      lambda e: self.log.yview_scroll(-1 * int(e.delta / 120), "units"))
 
     # ---------------- 菜单切换 ----------------
     def _on_menu_select(self, _event=None):
@@ -1741,7 +1753,7 @@ class ToolboxApp(tk.Tk):
         self._ocr_hotkey_entry = tk.Entry(hotkey_frame, textvariable=self._ocr_hotkey_var, width=20)
         self._ocr_hotkey_entry.pack(side="left", padx=8)
         tk.Button(hotkey_frame, text="设置快捷键", command=self._ocr_set_hotkey, width=12).pack(side="left", padx=4)
-        self._label(hotkey_frame, "（需重启生效，如 Ctrl+Shift+T）").pack(side="left")
+        self._label(hotkey_frame, "（设置后立即生效，如 Ctrl+Shift+T）").pack(side="left")
 
         # 操作按钮区域
         btn_frame = tk.Frame(self.content, bg="#f5f6fa")
@@ -1791,23 +1803,29 @@ class ToolboxApp(tk.Tk):
         self._init_ocr_hotkey()
 
     def _ocr_set_hotkey(self):
-        """设置快捷键"""
+        """设置快捷键（立即生效，无需重启）"""
         hotkey = self._ocr_hotkey_var.get().strip()
         if not hotkey:
             messagebox.showwarning("提示", "请输入快捷键组合")
             return
-        # 保存到配置文件（简单实现）
-        config_path = os.path.join(os.path.dirname(__file__), ".ocr_hotkey")
+        # 保存到配置文件（exe 下 _APP_DIR 为 exe 所在目录，避免写到临时解压目录）
+        config_path = os.path.join(_APP_DIR, ".ocr_hotkey")
         try:
             with open(config_path, "w", encoding="utf-8") as f:
                 f.write(hotkey)
-            messagebox.showinfo("提示", f"快捷键已设置为: {hotkey}\n需要重启程序生效")
         except Exception as e:
             messagebox.showerror("错误", f"保存快捷键失败: {e}")
+            return
+        # 重建监听器，立即生效
+        if self._restart_ocr_hotkey_listener():
+            messagebox.showinfo("提示", f"快捷键已设置为: {hotkey}（立即生效）")
+        else:
+            messagebox.showwarning("提示", f"快捷键已保存为: {hotkey}\n"
+                                   "但监听器启动失败，重启程序后生效")
 
     def _load_ocr_hotkey(self):
         """加载保存的快捷键"""
-        config_path = os.path.join(os.path.dirname(__file__), ".ocr_hotkey")
+        config_path = os.path.join(_APP_DIR, ".ocr_hotkey")
         if os.path.exists(config_path):
             try:
                 with open(config_path, "r", encoding="utf-8") as f:
@@ -1818,18 +1836,34 @@ class ToolboxApp(tk.Tk):
 
     def _init_ocr_hotkey(self):
         """初始化全局快捷键监听"""
+        self._ocr_hotkey_var.set(self._load_ocr_hotkey())
+        self._restart_ocr_hotkey_listener()
+
+    def _restart_ocr_hotkey_listener(self):
+        """（重新）创建全局快捷键监听器，返回是否成功"""
         try:
             from pynput import keyboard
+        except ImportError:
+            self._log("提示: 安装 pynput 可启用全局快捷键 (pip install pynput)\n")
+            return False
 
-            hotkey_str = self._load_ocr_hotkey()
-            self._ocr_hotkey_var.set(hotkey_str)
+        # 先停掉旧监听器（如有）
+        old = getattr(self, "_ocr_listener", None)
+        if old is not None:
+            try:
+                old.stop()
+            except Exception:
+                pass
+            self._ocr_listener = None
+
+        try:
+            hotkey_str = self._ocr_hotkey_var.get().strip()
 
             # 解析快捷键
             key_map = {
                 "ctrl": "<ctrl>", "control": "<ctrl>",
                 "shift": "<shift>",
                 "alt": "<alt>",
-                "t": "t", "T": "T",
             }
 
             # 转换快捷键格式
@@ -1839,8 +1873,6 @@ class ToolboxApp(tk.Tk):
                 key_lower = key.strip().lower()
                 if key_lower in key_map:
                     pynput_keys.append(key_map[key_lower])
-                elif len(key.strip()) == 1:
-                    pynput_keys.append(f"<{key.strip().lower()}>")
                 else:
                     pynput_keys.append(f"<{key.strip().lower()}>")
 
@@ -1852,11 +1884,10 @@ class ToolboxApp(tk.Tk):
             self._ocr_listener = keyboard.GlobalHotKeys({hotkey_combo: on_activate})
             self._ocr_listener.daemon = True
             self._ocr_listener.start()
-
-        except ImportError:
-            self._log("提示: 安装 pynput 可启用全局快捷键 (pip install pynput)\n")
+            return True
         except Exception as e:
             self._log(f"快捷键设置失败: {e}\n")
+            return False
 
     def _ocr_capture(self):
         """截图功能"""
