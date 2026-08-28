@@ -417,6 +417,60 @@ def _check_model_updates_worker(app):
         notify("模型更新完成，重启后生效")
 
 
+# ==================== 全局快捷键解析 ====================
+
+# 修饰键别名 -> pynput 键名（<> 包裹）
+_HOTKEY_MODIFIER_ALIASES = {
+    "ctrl": "ctrl", "control": "ctrl", "ctl": "ctrl",
+    "shift": "shift", "alt": "alt", "altgr": "alt_gr",
+}
+# 支持的主键名（<> 包裹；单字符字母/数字无需包裹）
+_HOTKEY_SPECIAL_KEYS = {
+    "space", "tab", "enter", "return", "esc", "escape", "backspace",
+    "delete", "del", "insert", "home", "end", "page_up", "page_down",
+    "up", "down", "left", "right",
+}
+
+
+def _parse_hotkey(hotkey_str):
+    """解析快捷键字符串。
+    返回 (pynput组合, 规范化显示文本)，非法输入返回 (None, 错误原因)。
+    注意 pynput 格式要求：修饰键/功能键用 <> 包裹（<ctrl>、<f5>），
+    单字符主键不能包裹（t、7）——包裹会导致解析失败、监听器无法启动。
+    """
+    parts = [p.strip() for p in hotkey_str.split("+") if p.strip()]
+    if len(parts) < 2:
+        return None, "格式应为一个修饰键(Ctrl/Shift/Alt)加一个按键，如 Ctrl+Shift+T"
+    mods, key = [], None
+    for p in parts:
+        low = p.lower()
+        if low in _HOTKEY_MODIFIER_ALIASES:
+            m = _HOTKEY_MODIFIER_ALIASES[low]
+            if m not in mods:
+                mods.append(m)
+        elif key is None:
+            key = low
+        else:
+            return None, f"主键只能有一个（多余的: {p}）"
+    if key is None:
+        return None, "缺少主键（如 Ctrl+Shift+T 中的 T）"
+    if not mods:
+        return None, "缺少修饰键（Ctrl/Shift/Alt 至少一个）"
+    if len(mods) + 1 > 3:
+        return None, "组合键过多（硬件最多同时识别 3 键）"
+    if len(key) == 1 and key.isalnum():
+        pass  # 单字符字母/数字：不包裹
+    elif re.fullmatch(r"f([1-9]|1[0-2])", key) or key in _HOTKEY_SPECIAL_KEYS:
+        key = f"<{key}>"  # 功能键/特殊键：包裹
+    else:
+        return None, f"无法识别的按键: {key}"
+    combo = "+".join(f"<{m}>" for m in mods) + f"+{key}"
+    raw_key = key.strip("<>")
+    key_disp = raw_key.upper() if len(raw_key) == 1 else raw_key.capitalize()
+    display = "+".join(m.capitalize() for m in mods) + "+" + key_disp
+    return (combo, display), None
+
+
 class ConfirmToolbar(tk.Toplevel):
     """框选完成后浮动的确认工具条：√ 确认识别 / X 取消"""
 
@@ -466,7 +520,7 @@ class RegionSelector(tk.Toplevel):
         self.callback = callback
         self.start_x = 0
         self.start_y = 0
-        self.rect_id = None
+        self._hint_id = None
         self._result_image = None
         self._toolbar = None
         self._sel_coords = None
@@ -519,12 +573,17 @@ class RegionSelector(tk.Toplevel):
             self._screen_img = shot
             self.canvas.delete("all")
             self.canvas.create_image(0, 0, image=self._photo, anchor="nw")
-            self.canvas.create_text(
+            self._hint_id = self.canvas.create_text(
                 self.winfo_screenwidth() // 2, 30,
                 text="拖动鼠标框选表格区域 | 松开后点 ✔ 识别 / ✘ 取消 | 按 ESC 取消",
                 fill="white",
                 font=("Microsoft YaHei UI", 14, "bold"),
             )
+            # 打开即整屏置灰，拖拽时选区实时恢复明亮（见 _on_drag）
+            W, H = self.winfo_screenwidth(), self.winfo_screenheight()
+            self._overlay_ids = [self.canvas.create_rectangle(
+                0, 0, W, H, fill="black", stipple="gray50", outline="")]
+            self.canvas.tag_raise(self._hint_id)
         except Exception:
             self.finish(None)
 
@@ -554,6 +613,9 @@ class RegionSelector(tk.Toplevel):
             c.create_rectangle(x1, y1, x2, y2, outline="#1e6fd9",
                                width=2),
         ]
+        # 提示文字保持在遮罩之上，不被置灰遮挡
+        if self._hint_id is not None:
+            c.tag_raise(self._hint_id)
 
     def _hide_toolbar(self):
         if self._toolbar is not None:
@@ -567,19 +629,14 @@ class RegionSelector(tk.Toplevel):
         self._sel_coords = None
         self.start_x = event.x
         self.start_y = event.y
-        if self.rect_id:
-            self.canvas.delete(self.rect_id)
-        self.rect_id = self.canvas.create_rectangle(
-            self.start_x, self.start_y, self.start_x, self.start_y,
-            outline="#1e6fd9", width=2
-        )
-        # 拖动过程中清掉旧的暗淡遮罩
-        self._clear_overlays()
 
     def _on_drag(self, event):
-        if self.rect_id:
-            self.canvas.coords(self.rect_id,
-                               self.start_x, self.start_y, event.x, event.y)
+        if self._screen_img is None:
+            return
+        # 拖拽中实时重绘：选区内明亮、选区外置灰 + 蓝色边框跟随鼠标
+        x1, y1 = min(self.start_x, event.x), min(self.start_y, event.y)
+        x2, y2 = max(self.start_x, event.x), max(self.start_y, event.y)
+        self._draw_dim_and_border(x1, y1, x2, y2)
 
     def _on_release(self, event):
         x1 = min(self.start_x, event.x)
@@ -1990,25 +2047,29 @@ class ToolboxApp(tk.Tk):
         self._init_ocr_hotkey()
 
     def _ocr_set_hotkey(self):
-        """设置快捷键（立即生效，无需重启）"""
+        """设置快捷键（校验后立即生效，无需重启；结果只在日志中提示，不弹窗）"""
         hotkey = self._ocr_hotkey_var.get().strip()
         if not hotkey:
-            messagebox.showwarning("提示", "请输入快捷键组合")
+            self._notify("请输入快捷键组合（如 Ctrl+Shift+T）")
             return
-        # 保存到配置文件（exe 下 _APP_DIR 为 exe 所在目录，避免写到临时解压目录）
+        parsed, err = _parse_hotkey(hotkey)
+        if parsed is None:
+            self._notify(f"快捷键设置失败: {err}（输入: {hotkey}）")
+            return
+        combo, display = parsed
+        # 保存规范化文本（exe 下 _APP_DIR 为 exe 所在目录，避免写到临时解压目录）
         config_path = os.path.join(_APP_DIR, ".ocr_hotkey")
         try:
             with open(config_path, "w", encoding="utf-8") as f:
-                f.write(hotkey)
+                f.write(display)
         except Exception as e:
-            messagebox.showerror("错误", f"保存快捷键失败: {e}")
+            self._notify(f"保存快捷键失败: {e}")
             return
         # 重建监听器，立即生效
         if self._restart_ocr_hotkey_listener():
-            messagebox.showinfo("提示", f"快捷键已设置为: {hotkey}（立即生效）")
+            self._notify(f"快捷键已设置为: {display}（立即生效）")
         else:
-            messagebox.showwarning("提示", f"快捷键已保存为: {hotkey}\n"
-                                   "但监听器启动失败，重启程序后生效")
+            self._notify(f"快捷键 {display} 监听器启动失败，请查看日志排查")
 
     def _ocr_set_model(self):
         """切换识别模型：已就绪则立即生效；未下载则确认后后台下载，完成后生效"""
@@ -2078,8 +2139,14 @@ class ToolboxApp(tk.Tk):
         return "Ctrl+Shift+T"
 
     def _init_ocr_hotkey(self):
-        """初始化全局快捷键监听"""
-        self._ocr_hotkey_var.set(self._load_ocr_hotkey())
+        """初始化全局快捷键监听（已保存的快捷键非法时回退默认并提示）"""
+        hotkey = self._load_ocr_hotkey()
+        parsed, err = _parse_hotkey(hotkey)
+        if parsed is None:
+            self._log(f"[提示] 已保存的快捷键 {hotkey!r} 无效（{err}），"
+                      "回退默认 Ctrl+Shift+T\n")
+            hotkey = "Ctrl+Shift+T"
+        self._ocr_hotkey_var.set(hotkey)
         self._restart_ocr_hotkey_listener()
 
     def _restart_ocr_hotkey_listener(self):
@@ -2101,35 +2168,22 @@ class ToolboxApp(tk.Tk):
 
         try:
             hotkey_str = self._ocr_hotkey_var.get().strip()
-
-            # 解析快捷键
-            key_map = {
-                "ctrl": "<ctrl>", "control": "<ctrl>",
-                "shift": "<shift>",
-                "alt": "<alt>",
-            }
-
-            # 转换快捷键格式
-            keys = hotkey_str.split("+")
-            pynput_keys = []
-            for key in keys:
-                key_lower = key.strip().lower()
-                if key_lower in key_map:
-                    pynput_keys.append(key_map[key_lower])
-                else:
-                    pynput_keys.append(f"<{key.strip().lower()}>")
-
-            hotkey_combo = "+".join(pynput_keys)
+            parsed, err = _parse_hotkey(hotkey_str)
+            if parsed is None:
+                self._log(f"[提示] 快捷键 {hotkey_str!r} 无效: {err}，监听器未启动\n")
+                return False
+            combo, display = parsed
 
             def on_activate():
                 self.after(0, self._ocr_capture)
 
-            self._ocr_listener = keyboard.GlobalHotKeys({hotkey_combo: on_activate})
+            self._ocr_listener = keyboard.GlobalHotKeys({combo: on_activate})
             self._ocr_listener.daemon = True
             self._ocr_listener.start()
+            self._log(f"[快捷键] 全局监听已启动: {display}\n")
             return True
         except Exception as e:
-            self._log(f"快捷键设置失败: {e}\n")
+            self._log(f"[快捷键] 监听器启动失败: {e}\n")
             return False
 
     def _ocr_capture(self):
