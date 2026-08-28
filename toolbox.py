@@ -30,10 +30,12 @@ _EXTERNAL_MODELS_DIR = os.path.join(
 # 1. 截图无旋转/弯曲、用户已框选表格区域，不加载 doc_ori/UVDoc/PP-DocLayout-L
 # 2. OCR 用 mobile 版（server 版为精度设计，CPU 单次推理 ~90 秒；
 #    mobile 版实测同一截图 4 秒且识别结果一致，截图为数字原生图像精度足够）
+# 3. PP-OCRv5：官方称整体精度较 v4 提升（标点/生僻字/繁体），
+#    实测速度与 v4 mobile 相同（~4 秒）
 _TABLE_MODEL_NAMES = [
     "SLANet_plus",
-    "PP-OCRv4_mobile_det",
-    "PP-OCRv4_mobile_rec",
+    "PP-OCRv5_mobile_det",
+    "PP-OCRv5_mobile_rec",
 ]
 _BOS_MODEL_BASE = ("https://paddle-model-ecology.bj.bcebos.com/paddlex/"
                    "official_inference_model/paddle3.0.0")
@@ -146,17 +148,17 @@ def _get_table_pipeline():
                     # 截图场景精简流水线：
                     # 1. 关闭文档预处理（方向/弯曲矫正）与版面检测子模型
                     #    ——三者根本不加载（而非仅跳过推理）
-                    # 2. OCR 子模型换 mobile 版（server 版 CPU 推理 ~90 秒，
-                    #    mobile 实测 4 秒且截图场景识别结果一致）
+                    # 2. OCR 子模型用 PP-OCRv5 mobile 版（server 版 CPU 推理
+                    #    ~90 秒；v5 mobile 实测 4 秒且精度优于 v4）
                     from paddlex.inference.pipelines import load_pipeline_config
                     _slim_cfg = load_pipeline_config('table_recognition')
                     _slim_cfg['use_doc_preprocessor'] = False
                     _slim_cfg['use_layout_detection'] = False
                     _ocr_sub = _slim_cfg['SubPipelines']['GeneralOCR']['SubModules']
-                    _ocr_sub['TextDetection']['model_name'] = 'PP-OCRv4_mobile_det'
-                    _ocr_sub['TextRecognition']['model_name'] = 'PP-OCRv4_mobile_rec'
+                    _ocr_sub['TextDetection']['model_name'] = 'PP-OCRv5_mobile_det'
+                    _ocr_sub['TextRecognition']['model_name'] = 'PP-OCRv5_mobile_rec'
                     print("[模型] 使用精简流水线（跳过方向矫正/去畸变/版面检测，"
-                          "OCR 采用 mobile 模型）")
+                          "OCR 采用 PP-OCRv5 mobile 模型）")
                     _TABLE_PIPELINE = create_pipeline(
                         pipeline='table_recognition', config=_slim_cfg)
                 except Exception:
@@ -541,7 +543,6 @@ def capture_region(parent=None, callback=None):
 
 def recognize_table(image_path_or_pil):
     """识别图片中的表格（使用paddlex table_recognition流水线）"""
-    os.environ['PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT'] = '0'
     try:
         import cv2
     except ImportError:
@@ -557,7 +558,8 @@ def recognize_table(image_path_or_pil):
         w, h = image_path_or_pil.size
         print(f"[识别] 输入图像 {w}x{h}")
         # 小图放大 2 倍：截图文字偏小（100% DPI 下一行文字约 12-20px 高），
-        # 是 OCR 检测/识别的主要失分点，放大可显著提高准确率
+        # 是 OCR 检测/识别的主要失分点；det 内部会按 limit_side_len=960
+        # 归一化长边，放大几乎不增加耗时
         if min(w, h) < 640:
             image_path_or_pil = image_path_or_pil.resize((w * 2, h * 2), Image.LANCZOS)
             print("[识别] 图像较小，已放大 2 倍以提高识别准确率")
@@ -605,20 +607,78 @@ def recognize_table(image_path_or_pil):
         pass
 
 
+# CJK 字符与中文标点（用于单元格文本归一化）
+_CJK_CHARS = ("\u4e00-\u9fff\u3000-\u303f"      # 汉字 + CJK 标点
+              "\uff00-\uffef")                   # 全角符号（，。、；：！？（）等）
+# OCR 偶发在中文旁输出多余空格（如"拆分、 识别"），同配置不同进程表现不一，
+# 属模型固有抖动——用确定性后处理根治：
+# 1. CJK 字符旁的空白剔除（纯英文单词间距保留，如 "New York"）
+_CELL_SPACE_RE = re.compile(
+    rf"(?<=[{_CJK_CHARS}])\s+(?=[{_CJK_CHARS}])|"
+    rf"(?<=[{_CJK_CHARS}])\s+(?=[A-Za-z0-9])|"
+    rf"(?<=[A-Za-z0-9])\s+(?=[{_CJK_CHARS}])")
+# 2. 两个 CJK 字符之间的半角标点还原为全角（如"详情,删除"→"详情，删除"；
+#    数字旁的半角标点不动，如 "1,000"）
+_CELL_PUNCT_RE = re.compile(
+    rf"(?<=[{_CJK_CHARS}])([,;:?!])(?=[{_CJK_CHARS}])")
+_PUNCT_MAP = {",": "，", ";": "；", ":": "：", "?": "？", "!": "！"}
+
+
+def _clean_cell_text(text):
+    """单元格文本归一化：去 CJK 旁多余空格 + 还原 CJK 间半角标点"""
+    text = _CELL_SPACE_RE.sub("", text)
+    text = _CELL_PUNCT_RE.sub(lambda m: _PUNCT_MAP[m.group(1)], text)
+    return text
+
+
 def html_to_table_data(html):
-    """将HTML表格转换为二维列表"""
+    """将HTML表格转换为二维列表（展开 colspan/rowspan，保证行列对齐）"""
     rows = []
     tr_pattern = re.compile(r"<tr[^>]*>(.*?)</tr>", re.DOTALL | re.IGNORECASE)
-    td_pattern = re.compile(r"<t[dh][^>]*>(.*?)</t[dh]>", re.DOTALL | re.IGNORECASE)
+    td_pattern = re.compile(r"<t[dh]([^>]*)>(.*?)</t[dh]>", re.DOTALL | re.IGNORECASE)
+    span_pattern = re.compile(r"(colspan|rowspan)\s*=\s*\"?(\d+)\"?", re.IGNORECASE)
+
+    # rowspan 跨行延续：{列号: [剩余行数, 单元格文本]}
+    pending = {}
+
+    def drain_pending(col):
+        """放置该列由上方 rowspan 延续下来的单元格，返回 (文本列表, 新列号)"""
+        out = []
+        while col in pending:
+            out.append(pending[col][1])
+            remain = pending[col][0] - 1
+            if remain <= 0:
+                del pending[col]
+            else:
+                pending[col] = (remain, pending[col][1])
+            col += 1
+        return out, col
 
     for tr_match in tr_pattern.finditer(html):
         tr_content = tr_match.group(1)
         cells = []
+        col = 0
         for td_match in td_pattern.finditer(tr_content):
-            cell_text = td_match.group(1)
-            cell_text = re.sub(r"<[^>]+>", "", cell_text)
-            cell_text = cell_text.strip()
-            cells.append(cell_text)
+            # 先让上方 rowspan 延续的单元格就位，再放当前单元格
+            cont, col = drain_pending(col)
+            cells.extend(cont)
+
+            attrs, cell_text = td_match.group(1), td_match.group(2)
+            cell_text = _clean_cell_text(re.sub(r"<[^>]+>", "", cell_text))
+            colspan = rowspan = 1
+            for name, val in span_pattern.findall(attrs):
+                if name.lower() == "colspan":
+                    colspan = max(1, int(val))
+                else:
+                    rowspan = max(1, int(val))
+            for _ in range(colspan):
+                cells.append(cell_text)
+                if rowspan > 1:
+                    pending[col] = (rowspan - 1, cell_text)
+                col += 1
+        # 行尾仍有 rowspan 延续时补齐
+        cont, _ = drain_pending(col)
+        cells.extend(cont)
         if cells:
             rows.append(cells)
 
