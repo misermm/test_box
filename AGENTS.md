@@ -24,3 +24,4 @@
 
 - 每次打包命令有变动时，必须同步更新 `build.bat` 和 `build.ps1` 中的打包命令
 - 每次 AGENTS.md、build.bat、build.ps1 有变动时，必须自动提交 git（无需用户确认）
+- 每次代码变动（toolbox.py 等）完成修改后，必须自动提交 git（无需用户确认）
