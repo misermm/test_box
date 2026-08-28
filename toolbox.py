@@ -85,6 +85,7 @@ _pdx_deps.is_extra_available = lambda extra: True
 _pdx_deps.is_dep_available = lambda dep, check_version=False: True
 
 import re
+import io
 import logging
 import tempfile
 import threading
@@ -186,8 +187,13 @@ def _save_models_manifest(models_dir, manifest):
     os.replace(tmp, os.path.join(models_dir, "manifest.json"))
 
 
+_CRASH_LOG_F = None  # 全局引用，防止文件对象被回收导致 faulthandler 失效
+
+
 def _setup_update_file_log():
-    r"""把日志额外写入 %LOCALAPPDATA%\TestToolbox\update.log（exe 无控制台，便于排查）"""
+    r"""把日志额外写入 %LOCALAPPDATA%\TestToolbox\update.log（exe 无控制台，便于排查），
+    同时开启 faulthandler：C 层崩溃（access violation 等）的堆栈写 crash.log"""
+    global _CRASH_LOG_F
     try:
         d = os.path.join(os.environ.get('LOCALAPPDATA', _APP_DIR), "TestToolbox")
         os.makedirs(d, exist_ok=True)
@@ -195,6 +201,12 @@ def _setup_update_file_log():
         h.setFormatter(logging.Formatter(
             '%(asctime)s [%(levelname)s] %(name)s: %(message)s'))
         logging.getLogger().addHandler(h)
+    except Exception:
+        pass
+    try:
+        import faulthandler
+        _CRASH_LOG_F = open(os.path.join(d, "crash.log"), "a", encoding="utf-8")
+        faulthandler.enable(_CRASH_LOG_F, all_threads=True)
     except Exception:
         pass
 
@@ -2000,6 +2012,75 @@ class ToolboxApp(tk.Tk):
         self.destroy()
 
 
+def _prewarm_model_worker(app):
+    """后台预热：程序启动后立即加载表格识别模型。
+    模型加载非常耗时（exe 下从临时目录读取+CPU 初始化约1-3分钟），
+    预热后用户截图识别可立即返回，避免识别期间长时间等待被误认为无响应。"""
+    import time
+
+    def notify(text):
+        try:
+            app.after(0, lambda t=text: app._notify(t))
+        except Exception:
+            pass
+
+    time.sleep(8)  # 避开启动高峰（onefile 解压、GUI 初始化、更新检查）
+    notify("正在后台加载表格识别模型（约1-3分钟），期间可正常使用其他功能...")
+    try:
+        # paddlex 加载过程的 print 输出量很大，吞掉避免干扰 GUI 日志；
+        # 失败时会在首次识别时重试，届时日志面板可见完整过程
+        sink = io.StringIO()
+        with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
+            _get_table_pipeline()
+        notify("表格识别模型已就绪，截图识别可立即使用")
+    except Exception:
+        logging.error(f"[模型预热] 加载失败:\n{traceback.format_exc()}")
+        notify("模型后台加载失败，将在首次识别时重试（详见 update.log）")
+
+
+def _run_selftest():
+    """无 GUI 自检入口（TestToolbox.exe --selftest）：生成表格图并完整跑一次识别，
+    结果写入 exe 同级 _selftest_result.txt，用于验证打包后识别功能真实可用。"""
+    import time
+
+    out = os.path.join(_APP_DIR, "_selftest_result.txt")
+    with open(out, "w", encoding="utf-8") as f:
+        f.write(f"selftest start: models_dir={_MODELS_DIR}\n")
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+            img = Image.new("RGB", (640, 320), "white")
+            d = ImageDraw.Draw(img)
+            try:
+                font = ImageFont.truetype("C:/Windows/Fonts/arial.ttf", 22)
+                hfont = ImageFont.truetype("C:/Windows/Fonts/msyh.ttc", 22)
+            except Exception:
+                font = hfont = ImageFont.load_default()
+            rows = [["Name", "Age", "City"],
+                    ["Alice", "30", "Beijing"],
+                    ["Bob", "25", "Shanghai"],
+                    ["Carol", "35", "Guangzhou"]]
+            x0, y0, cw, rh = 40, 40, 180, 60
+            for r, row in enumerate(rows):
+                for c, cell in enumerate(row):
+                    d.text((x0 + c * cw + 10, y0 + r * rh + 15), cell, fill="black",
+                           font=hfont if r == 0 else font)
+            w, h = x0 + 3 * cw, y0 + 4 * rh
+            for i in range(5):
+                d.line([(x0 + i * cw, y0), (x0 + i * cw, h)], fill="black", width=2)
+                d.line([(x0, y0 + i * rh), (w, y0 + i * rh)], fill="black", width=2)
+
+            t0 = time.time()
+            data, html = recognize_table(img)
+            dt = time.time() - t0
+            f.write(f"OK rows={len(data)} time={dt:.1f}s\n")
+            for row in data:
+                f.write(" | ".join(str(c) for c in row) + "\n")
+            logging.info(f"[selftest] OK rows={len(data)} time={dt:.1f}s")
+        except Exception:
+            f.write("FAIL\n" + traceback.format_exc())
+            logging.error(f"[selftest] FAIL\n{traceback.format_exc()}")
+
+
 def main():
     app = ToolboxApp()
     # 启动时后台检查模型更新（网络失败不影响使用，仅日志提示）
@@ -2013,8 +2094,14 @@ def main():
 
     t = threading.Thread(target=_run_update_check, daemon=True)
     t.start()
+    # 后台预热模型：用户截图时模型已加载，识别即时返回
+    threading.Thread(target=_prewarm_model_worker, args=(app,), daemon=True).start()
     app.mainloop()
 
 
 if __name__ == "__main__":
-    main()
+    if "--selftest" in sys.argv:
+        _setup_update_file_log()
+        _run_selftest()
+    else:
+        main()
