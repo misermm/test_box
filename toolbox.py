@@ -26,10 +26,10 @@ _EXTERNAL_MODELS_DIR = os.path.join(
     os.environ.get('LOCALAPPDATA', _APP_DIR), "TestToolbox", "models")
 
 # 表格识别流水线所需的全部官方模型名
+# 截图场景瘦身：截图无旋转/弯曲、用户已框选表格区域，
+# 不加载 doc_ori（方向矫正）/ UVDoc（去畸变）/ PP-DocLayout-L（版面检测），
+# 仅保留表格结构 + OCR 共 3 个模型（exe 体积约减 160MB，加载更快）
 _TABLE_MODEL_NAMES = [
-    "PP-LCNet_x1_0_doc_ori",
-    "UVDoc",
-    "PP-DocLayout-L",
     "SLANet_plus",
     "PP-OCRv4_server_det",
     "PP-OCRv4_server_rec_doc",
@@ -122,7 +122,11 @@ def _get_table_pipeline():
     """获取表格识别流水线（懒加载 + 线程安全 + 全局缓存）"""
     global _TABLE_PIPELINE
     if _TABLE_PIPELINE is None:
-        with _TABLE_PIPELINE_LOCK:
+        # 锁被占用说明预热线程正在加载：给出提示再等待，避免静默阻塞
+        if not _TABLE_PIPELINE_LOCK.acquire(blocking=False):
+            print("[模型] 正在等待后台模型加载完成（首次约1-3分钟），请稍候...")
+            _TABLE_PIPELINE_LOCK.acquire()
+        try:
             if _TABLE_PIPELINE is None:
                 from paddlex import create_pipeline
                 print("正在加载识别模型（仅首次）...")
@@ -138,12 +142,23 @@ def _get_table_pipeline():
                 print(f"[模型] 模型源: {os.environ.get('PADDLE_PDX_MODEL_SOURCE')}，"
                       f"联网检查: {'跳过' if os.environ.get('PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK') else '开启'}")
                 try:
-                    _TABLE_PIPELINE = create_pipeline(pipeline='table_recognition')
+                    # 截图场景精简流水线：通过配置关闭文档预处理（方向/弯曲矫正）
+                    # 与版面检测子模型——三者根本不加载（而非仅跳过推理），
+                    # 显著缩短模型加载时间并降低内存占用
+                    from paddlex.inference.pipelines import load_pipeline_config
+                    _slim_cfg = load_pipeline_config('table_recognition')
+                    _slim_cfg['use_doc_preprocessor'] = False
+                    _slim_cfg['use_layout_detection'] = False
+                    print("[模型] 使用精简流水线（已跳过方向矫正/去畸变/版面检测模型）")
+                    _TABLE_PIPELINE = create_pipeline(
+                        pipeline='table_recognition', config=_slim_cfg)
                 except Exception:
                     print("[模型] 加载失败，完整堆栈如下：")
                     print(traceback.format_exc())
                     raise
                 print("模型加载完成")
+        finally:
+            _TABLE_PIPELINE_LOCK.release()
     return _TABLE_PIPELINE
 
 
@@ -227,6 +242,20 @@ def _check_model_updates_worker(app):
             pass
 
     time.sleep(3)  # 等待 GUI 主循环就绪，使 after 通知可用
+
+    # 清理外部目录中旧版本遗留的已弃用模型（如 doc_ori/UVDoc/DocLayout），释放磁盘
+    ext_official = os.path.join(_EXTERNAL_MODELS_DIR, "official_models")
+    if os.path.isdir(ext_official):
+        for d in os.listdir(ext_official):
+            if d not in _TABLE_MODEL_NAMES and os.path.isdir(os.path.join(ext_official, d)):
+                shutil.rmtree(os.path.join(ext_official, d), ignore_errors=True)
+                notify(f"已清理不再使用的模型: {d}")
+        ext_manifest = _load_models_manifest(_EXTERNAL_MODELS_DIR)
+        if ext_manifest:
+            pruned = {k: v for k, v in ext_manifest.items() if k in _TABLE_MODEL_NAMES}
+            if pruned != ext_manifest:
+                _save_models_manifest(_EXTERNAL_MODELS_DIR, pruned)
+
     notify("正在检查表格识别模型更新...")
     remote = _model_remote_tags()
     if remote is None:
@@ -513,10 +542,18 @@ def recognize_table(image_path_or_pil):
 
     import numpy as np
     import cv2 as _cv2
+    import time
 
     predict_input = image_path_or_pil
     temp_file = None
     if isinstance(image_path_or_pil, Image.Image):
+        w, h = image_path_or_pil.size
+        print(f"[识别] 输入图像 {w}x{h}")
+        # 小图放大 2 倍：截图文字偏小（100% DPI 下一行文字约 12-20px 高），
+        # 是 OCR 检测/识别的主要失分点，放大可显著提高准确率
+        if min(w, h) < 640:
+            image_path_or_pil = image_path_or_pil.resize((w * 2, h * 2), Image.LANCZOS)
+            print("[识别] 图像较小，已放大 2 倍以提高识别准确率")
         # 直接转 BGR ndarray 喂给流水线，避免临时 PNG 的编码+磁盘读写开销
         rgb = np.asarray(image_path_or_pil.convert("RGB"))
         predict_input = _cv2.cvtColor(rgb, _cv2.COLOR_RGB2BGR)
@@ -524,8 +561,17 @@ def recognize_table(image_path_or_pil):
     try:
         # 复用全局缓存的流水线，避免每次识别都重新加载模型（首次加载可能需数十秒）
         pipeline = _get_table_pipeline()
-        output = list(pipeline.predict(input=predict_input))
-        print("识别完成，正在解析结果...")
+        t0 = time.time()
+        # 截图模式：用户已框选表格区域，整张图就是表格——
+        # 双重保险：流水线创建时已不加载这三个子模型（见 _get_table_pipeline），
+        # 此处再显式关闭推理开关（截图不存在旋转/弯曲，也无需检测版面）
+        output = list(pipeline.predict(
+            input=predict_input,
+            use_doc_orientation_classify=False,
+            use_doc_unwarping=False,
+            use_layout_detection=False,
+        ))
+        print(f"[识别] 推理完成，用时 {time.time() - t0:.1f} 秒，正在解析结果...")
 
         all_table_data = []
         html_parts = []
@@ -1829,9 +1875,11 @@ class ToolboxApp(tk.Tk):
                 return
 
             self._ocr_image = image
-            self._log("截图完成，正在识别表格...\n")
+            # 注意：提示语必须在 _start_task 之后写——_start_task 会清空日志面板，
+            # 先写会被清掉（曾导致识别期间面板空白）
             self._start_task(self._ocr_do_recognize, image,
                              on_done=self._ocr_on_recognize_done)
+            self._log("截图完成，正在识别表格...\n")
 
         capture_region(parent=self, callback=on_region_selected)
 
@@ -1845,16 +1893,31 @@ class ToolboxApp(tk.Tk):
             try:
                 image = Image.open(f)
                 self._ocr_image = image
-                self._log(f"已加载图片: {os.path.basename(f)}，正在识别表格...\n")
+                # 提示语在 _start_task 之后写，避免被其清空日志面板
                 self._start_task(self._ocr_do_recognize, image,
                                  on_done=self._ocr_on_recognize_done)
+                self._log(f"已加载图片: {os.path.basename(f)}，正在识别表格...\n")
             except Exception as e:
                 messagebox.showerror("错误", f"打开图片失败: {e}")
 
     def _ocr_do_recognize(self, image):
         """执行表格识别（在后台线程中运行）"""
-        table_data, html = recognize_table(image)
-        return table_data
+        import time
+        # 看门狗：每 5 秒向日志面板报进度，让用户知道识别正在进行
+        stop = threading.Event()
+
+        def _progress():
+            t0 = time.time()
+            while not stop.wait(5):
+                print(f"[识别] 进行中... 已用时 {time.time() - t0:.0f} 秒")
+
+        threading.Thread(target=_progress, daemon=True).start()
+        try:
+            print("[识别] 开始识别表格...")
+            table_data, html = recognize_table(image)
+            return table_data
+        finally:
+            stop.set()
 
     def _ocr_on_recognize_done(self, result):
         """识别完成回调"""
@@ -2027,11 +2090,11 @@ def _prewarm_model_worker(app):
     time.sleep(8)  # 避开启动高峰（onefile 解压、GUI 初始化、更新检查）
     notify("正在后台加载表格识别模型（约1-3分钟），期间可正常使用其他功能...")
     try:
-        # paddlex 加载过程的 print 输出量很大，吞掉避免干扰 GUI 日志；
-        # 失败时会在首次识别时重试，届时日志面板可见完整过程
-        sink = io.StringIO()
-        with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
-            _get_table_pipeline()
+        # 注意：这里不能用 redirect_stdout 吞 paddlex 的加载输出——
+        # redirect_stdout 是进程级全局替换，会把并发识别任务的日志一起吞掉
+        #（识别 worker 的 print 全部丢失，日志面板空白）。
+        # paddlex 加载 print 在 exe（无控制台）中自然丢弃，源码运行进控制台，均无害。
+        _get_table_pipeline()
         notify("表格识别模型已就绪，截图识别可立即使用")
     except Exception:
         logging.error(f"[模型预热] 加载失败:\n{traceback.format_exc()}")
