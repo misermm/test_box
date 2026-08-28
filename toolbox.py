@@ -11,7 +11,8 @@ import json
 # ==================== paddlex 本地离线模型配置 ====================
 # 必须在 import paddlex 之前设置：
 # 1. 模型缓存目录按优先级选择：
-#    a) %LOCALAPPDATA%\TestToolbox\models —— 启动时自动检查更新下载的模型（优先）
+#    a) <存储位置>\models —— 启动时自动检查更新下载的模型（优先）
+#       存储位置默认 %LOCALAPPDATA%\TestToolbox，可在界面更改（含迁移）
 #    b) 内置模型 —— 源码运行=项目 models/，exe 运行=打包进 exe 的 models/（--add-data）
 #    模型已预下载，运行时直接使用本地缓存，不联网
 # 2. 模型源固定为 BOS（百度 CDN，国内可达），仅在缓存缺模型时才会联网下载兜底
@@ -22,8 +23,34 @@ if getattr(sys, 'frozen', False):
 else:
     _APP_DIR = os.path.dirname(os.path.abspath(__file__))
     _BUILTIN_MODELS_DIR = os.path.join(_APP_DIR, "models")
-_EXTERNAL_MODELS_DIR = os.path.join(
-    os.environ.get('LOCALAPPDATA', _APP_DIR), "TestToolbox", "models")
+# 存储根目录：模型/日志等文件的存放位置（默认 C 盘 %LOCALAPPDATA%\TestToolbox，
+# 用户可在界面"文件存储位置"中更改，配置持久化在程序同级 .storage_dir，
+# 更改后自动迁移已有文件并立即生效，避免占用 C 盘）
+_STORAGE_CONFIG_FILE = os.path.join(_APP_DIR, ".storage_dir")
+
+
+def _default_storage_dir():
+    return os.path.join(os.environ.get('LOCALAPPDATA', _APP_DIR), "TestToolbox")
+
+
+def _load_storage_dir():
+    try:
+        with open(_STORAGE_CONFIG_FILE, encoding="utf-8") as f:
+            p = f.read().strip()
+        if p and os.path.isabs(p):
+            return p
+    except Exception:
+        pass
+    return _default_storage_dir()
+
+
+_STORAGE_DIR = _load_storage_dir()
+_EXTERNAL_MODELS_DIR = os.path.join(_STORAGE_DIR, "models")
+
+
+def _external_models_dir():
+    """当前外部模型目录（跟随存储位置设置，迁移完成后实时生效）"""
+    return os.path.join(_STORAGE_DIR, "models")
 
 # 表格识别流水线所需的全部官方模型名
 # 截图场景瘦身：
@@ -111,7 +138,7 @@ def _ocr_model_dir(name):
     可选模型（server 等）只存在于外部目录。找不到返回 None。
     完整性校验（目录含 inference.yml）：下载中断会留下半成品目录，
     若只判 isdir 会误判"已就绪"，随后流水线加载报晦涩错误。"""
-    for root in (_MODELS_DIR, _EXTERNAL_MODELS_DIR):
+    for root in (_MODELS_DIR, _external_models_dir()):
         d = os.path.join(root, "official_models", name)
         if os.path.isfile(os.path.join(d, "inference.yml")):
             return d
@@ -323,11 +350,11 @@ _CRASH_LOG_F = None  # 全局引用，防止文件对象被回收导致 faulthan
 
 
 def _setup_update_file_log():
-    r"""把日志额外写入 %LOCALAPPDATA%\TestToolbox\update.log（exe 无控制台，便于排查），
+    r"""把日志额外写入 <存储位置>\update.log（exe 无控制台，便于排查），
     同时开启 faulthandler：C 层崩溃（access violation 等）的堆栈写 crash.log"""
     global _CRASH_LOG_F
     try:
-        d = os.path.join(os.environ.get('LOCALAPPDATA', _APP_DIR), "TestToolbox")
+        d = _STORAGE_DIR
         os.makedirs(d, exist_ok=True)
         h = logging.FileHandler(os.path.join(d, "update.log"), encoding="utf-8")
         h.setFormatter(logging.Formatter(
@@ -362,17 +389,18 @@ def _check_model_updates_worker(app):
 
     # 清理外部目录中旧版本遗留的已弃用模型（如 doc_ori/UVDoc/DocLayout），释放磁盘。
     # 注意用 _ALL_KNOWN_MODELS 判断：用户按需下载的可选 OCR 模型（server 等）允许保留
-    ext_official = os.path.join(_EXTERNAL_MODELS_DIR, "official_models")
+    ext_dir = _external_models_dir()
+    ext_official = os.path.join(ext_dir, "official_models")
     if os.path.isdir(ext_official):
         for d in os.listdir(ext_official):
             if d not in _ALL_KNOWN_MODELS and os.path.isdir(os.path.join(ext_official, d)):
                 shutil.rmtree(os.path.join(ext_official, d), ignore_errors=True)
                 notify(f"已清理不再使用的模型: {d}")
-        ext_manifest = _load_models_manifest(_EXTERNAL_MODELS_DIR)
+        ext_manifest = _load_models_manifest(ext_dir)
         if ext_manifest:
             pruned = {k: v for k, v in ext_manifest.items() if k in _TABLE_MODEL_NAMES}
             if pruned != ext_manifest:
-                _save_models_manifest(_EXTERNAL_MODELS_DIR, pruned)
+                _save_models_manifest(ext_dir, pruned)
 
     notify("正在检查表格识别模型更新...")
     remote = _model_remote_tags()
@@ -382,17 +410,17 @@ def _check_model_updates_worker(app):
 
     # 版本基线 = 内置模型打包时的 manifest（models/manifest.json），外部已更新的记录优先
     builtin = _load_models_manifest(_BUILTIN_MODELS_DIR) or {}
-    local = {**builtin, **(_load_models_manifest(_EXTERNAL_MODELS_DIR) or {})}
+    local = {**builtin, **(_load_models_manifest(ext_dir) or {})}
     changed = [n for n in _TABLE_MODEL_NAMES if local.get(n) != remote[n]]
     if not changed:
         notify("表格识别模型已是最新版本")
         return
 
     notify(f"发现 {len(changed)} 个模型有更新，开始下载...")
-    official_dir = os.path.join(_EXTERNAL_MODELS_DIR, "official_models")
+    official_dir = os.path.join(ext_dir, "official_models")
     os.makedirs(official_dir, exist_ok=True)
     # 外部目录尚未成为完整副本时，先以内置模型为底座复制一份（保证目录完整可独立使用）
-    if not _models_dir_complete(_EXTERNAL_MODELS_DIR):
+    if not _models_dir_complete(ext_dir):
         builtin_official = os.path.join(_BUILTIN_MODELS_DIR, "official_models")
         if os.path.isdir(builtin_official):
             notify("正在准备外部模型目录（首次更新，复制内置模型）...")
@@ -401,9 +429,9 @@ def _check_model_updates_worker(app):
     ok, failed = [], []
     for name in changed:
         try:
-            _download_model(name, _EXTERNAL_MODELS_DIR)
+            _download_model(name, ext_dir)
             manifest[name] = remote[name]
-            _save_models_manifest(_EXTERNAL_MODELS_DIR, manifest)
+            _save_models_manifest(ext_dir, manifest)
             ok.append(name)
             notify(f"模型 {name} 更新完成（{len(ok)}/{len(changed)}）")
         except Exception as e:
@@ -937,6 +965,7 @@ class ToolboxApp(tk.Tk):
         self._ocr_listener = None
         self._ocr_selecting = False   # 区域选择器已打开（防快捷键重入）
         self._ocr_downloading = None  # 正在后台下载的模型 label（防重复下载）
+        self._storage_migrating = False  # 存储位置迁移进行中（防重复迁移/下载冲突）
 
         self._build_ui()
         self._select_menu(0)
@@ -1983,6 +2012,23 @@ class ToolboxApp(tk.Tk):
             wraplength=760, justify="left")
         self._ocr_model_desc.pack(anchor="w", pady=(0, 8))
 
+        # 文件存储位置（模型/日志等大文件的存放目录，可更改以避免占用 C 盘）
+        storage_frame = tk.Frame(self.content, bg="#f5f6fa")
+        storage_frame.pack(fill="x", pady=(0, 2))
+        self._label(storage_frame, "文件存储位置:").pack(side="left")
+        self._storage_path_label = tk.Label(
+            storage_frame, text=_STORAGE_DIR, bg="#f5f6fa", fg="#2c3e50",
+            font=("Microsoft YaHei UI", 9), anchor="w")
+        self._storage_path_label.pack(side="left", padx=8, fill="x", expand=True)
+        self._storage_btn = tk.Button(
+            storage_frame, text="更改位置...", width=12,
+            command=self._change_storage_dir)
+        self._storage_btn.pack(side="left", padx=4)
+        self._storage_hint_label = tk.Label(
+            self.content, text="（模型、日志等文件将保存到该位置；更改后自动迁移已有文件并立即生效）",
+            bg="#f5f6fa", fg="#7f8c8d", font=("Microsoft YaHei UI", 9))
+        self._storage_hint_label.pack(anchor="w", pady=(0, 8))
+
         # 操作按钮区域
         btn_frame = tk.Frame(self.content, bg="#f5f6fa")
         btn_frame.pack(fill="x", pady=(0, 8))
@@ -2072,6 +2118,13 @@ class ToolboxApp(tk.Tk):
         if self._ocr_downloading == label:
             self._notify(f"模型 {label} 正在下载中，请等待完成")
             return
+        if self._storage_migrating:
+            # 迁移期间下载会写到旧目录，迁移完成时的清理会误删新下载文件
+            self._notify("存储位置正在迁移中，请等待完成后再下载模型")
+            self._ocr_model_var.set(_OCR_MODEL_CHOICE)
+            self._ocr_model_desc.config(
+                text=_OCR_MODEL_OPTIONS[_OCR_MODEL_CHOICE]["desc"])
+            return
         if self._ocr_downloading is not None:
             self._notify(f"正在下载 {self._ocr_downloading}，请等待完成后再切换其他模型")
             self._ocr_model_var.set(_OCR_MODEL_CHOICE)
@@ -2117,7 +2170,7 @@ class ToolboxApp(tk.Tk):
                "下载完成后自动切换，期间识别仍使用原模型...")
         for name in missing:
             try:
-                _download_model(name, _EXTERNAL_MODELS_DIR)
+                _download_model(name, _external_models_dir())
                 notify(f"模型 {name} 下载完成")
             except Exception as e:
                 logging.error(f"[模型下载] {name} 失败: {e}\n{traceback.format_exc()}")
@@ -2125,7 +2178,7 @@ class ToolboxApp(tk.Tk):
                 # inference.yml 也是为此），下次选择将重新走下载流程
                 import shutil
                 shutil.rmtree(
-                    os.path.join(_EXTERNAL_MODELS_DIR, "official_models", name),
+                    os.path.join(_external_models_dir(), "official_models", name),
                     ignore_errors=True)
                 notify(f"模型 {name} 下载失败: {e}（可稍后在\"识别模型\"中重试）")
                 reset_downloading()
@@ -2140,6 +2193,91 @@ class ToolboxApp(tk.Tk):
         notify(f"识别模型已切换: {label}（立即生效），正在后台加载...")
         reset_downloading()
         threading.Thread(target=_prewarm_pipeline_worker, daemon=True).start()
+
+    def _change_storage_dir(self):
+        """更改文件存储位置：选目录后后台迁移已有文件，完成后立即生效"""
+        global _STORAGE_DIR
+        if self._storage_migrating:
+            self._notify("存储位置正在迁移中，请等待完成")
+            return
+        if self._ocr_downloading is not None:
+            self._notify("正在下载模型，请等待下载完成后再更改存储位置")
+            return
+        if self._running:
+            # 迁移会移动模型文件，识别任务可能正读取它们
+            self._notify("有任务正在运行，请等待完成后再更改存储位置")
+            return
+        new_dir = filedialog.askdirectory(
+            title="选择文件存储位置（模型、日志等将保存到该目录）",
+            initialdir=_STORAGE_DIR)
+        if not new_dir:
+            return
+        new_dir = os.path.abspath(new_dir)
+        if os.path.normcase(new_dir) == os.path.normcase(_STORAGE_DIR):
+            self._notify(f"存储位置未变化: {new_dir}")
+            return
+        # 新位置不能位于现有模型目录内部（把自己迁进自己）
+        if os.path.normcase(_STORAGE_DIR) in os.path.normcase(new_dir):
+            self._notify("新位置不能位于当前存储目录内部")
+            return
+        self._storage_migrating = True
+        self._storage_btn.config(state="disabled")
+        self._notify(f"开始迁移文件到新存储位置: {new_dir}（后台进行，不影响其他操作）...")
+        threading.Thread(target=self._migrate_storage_worker,
+                         args=(new_dir,), daemon=True).start()
+
+    def _migrate_storage_worker(self, new_dir):
+        """后台线程：把现有模型/日志等文件迁移到新存储位置，完成后切换生效"""
+        global _STORAGE_DIR
+        old_dir = _STORAGE_DIR
+
+        def notify(text):
+            try:
+                self.after(0, lambda t=text: self._notify(t))
+            except Exception:
+                pass
+
+        def finish(ok):
+            def _done():
+                self._storage_migrating = False
+                self._storage_btn.config(state="normal")
+                if ok:
+                    self._storage_path_label.config(text=_STORAGE_DIR)
+            try:
+                self.after(0, _done)
+            except Exception:
+                pass
+
+        try:
+            import shutil
+            os.makedirs(new_dir, exist_ok=True)
+            # 1) 迁移模型目录（大头，可能数百 MB）：先复制后删除，
+            #    中途失败时旧目录仍完整，不会丢数据
+            old_models = os.path.join(old_dir, "models")
+            if os.path.isdir(old_models):
+                new_models = os.path.join(new_dir, "models")
+                notify("正在复制模型文件到新位置（文件较大时需要一些时间）...")
+                shutil.copytree(old_models, new_models, dirs_exist_ok=True)
+                shutil.rmtree(old_models, ignore_errors=True)
+            # 2) 迁移日志文件（正在被句柄持有，复制而非移动；
+            #    本进程继续写旧文件，下次启动写新位置）
+            for fname in ("update.log", "crash.log"):
+                src = os.path.join(old_dir, fname)
+                if os.path.isfile(src):
+                    try:
+                        shutil.copy2(src, os.path.join(new_dir, fname))
+                    except Exception:
+                        pass
+            # 3) 全部成功后才写入配置并切换（保证崩溃时旧配置仍有效）
+            with open(_STORAGE_CONFIG_FILE, "w", encoding="utf-8") as f:
+                f.write(new_dir)
+            _STORAGE_DIR = new_dir
+            notify(f"存储位置已切换: {new_dir}（已迁移完成并立即生效）")
+            finish(True)
+        except Exception as e:
+            logging.error(f"[存储迁移] 失败: {e}\n{traceback.format_exc()}")
+            notify(f"存储位置迁移失败: {e}（已保留原位置，可稍后重试）")
+            finish(False)
 
     def _load_ocr_hotkey(self):
         """加载保存的快捷键"""
