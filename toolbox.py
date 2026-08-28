@@ -1,13 +1,40 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 图片工具箱
 集成: 图片转PDF / 文件分割 / 文件合并 / 生成指定大小文件
 """
 
 import os
+import sys
+
+# ==================== paddlex 本地离线模型配置 ====================
+# 必须在 import paddlex 之前设置：
+# 1. 模型缓存固定到应用目录下的 models/（源码运行=脚本目录，打包后=exe 目录），
+#    模型已预下载，运行时直接使用本地缓存，不联网
+# 2. 模型源固定为 BOS（百度 CDN，国内可达），仅在 models/ 缺模型时才会联网下载兜底
+# 3. 跳过各模型源连通性检查（huggingface/aistudio 不可达时会长时间卡死）
+if getattr(sys, 'frozen', False):
+    _APP_DIR = os.path.dirname(sys.executable)
+else:
+    _APP_DIR = os.path.dirname(os.path.abspath(__file__))
+_MODELS_DIR = os.path.join(_APP_DIR, "models")
+os.environ['PADDLE_PDX_CACHE_HOME'] = _MODELS_DIR
+os.environ['PADDLE_PDX_MODEL_SOURCE'] = 'bos'
+os.environ['PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK'] = '1'
 os.environ['PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT'] = '0'
 
-# Monkey-patch: 绕过 paddlex 在 PyInstaller exe 中的依赖检查
+# 补丁1：paddlex 部分模块在导入时用 importlib.metadata 检查 "opencv-contrib-python"，
+# 实际安装的是 opencv-python（同为 cv2），让该检查通过，否则 image_reader 等模块不会 import cv2
+import importlib.metadata as _imd
+import cv2 as _cv2
+_orig_imd_version = _imd.version
+def _patched_imd_version(name):
+    if name == "opencv-contrib-python":
+        return _cv2.__version__
+    return _orig_imd_version(name)
+_imd.version = _patched_imd_version
+
+# 补丁2：绕过 paddlex 在 PyInstaller exe 中的依赖检查
 # importlib.metadata 在冻结 exe 中找不到包元数据，但依赖实际已安装
 import paddlex.utils.deps as _pdx_deps
 _pdx_deps.is_extra_available = lambda extra: True
@@ -15,13 +42,20 @@ _pdx_deps.is_dep_available = lambda dep, check_version=False: True
 
 import re
 import json
+import logging
 import tempfile
 import threading
+import traceback
 import contextlib
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from PIL import Image, ImageGrab, ImageTk
 import cv2
+
+# paddlex 内部日志走 logging（stderr/INFO 级别），配置后才能在日志面板可见
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s')
 
 from image_to_pdf import merge_images_to_pdf, convert_images_to_zip
 from file_splitter import split_to_zip, merge_zip_files
@@ -48,7 +82,23 @@ def _get_table_pipeline():
             if _TABLE_PIPELINE is None:
                 from paddlex import create_pipeline
                 print("正在加载识别模型（仅首次）...")
-                _TABLE_PIPELINE = create_pipeline(pipeline='table_recognition')
+                # 详细过程日志，便于排查模型缺失/加载失败等问题
+                models_root = os.path.join(_MODELS_DIR, "official_models")
+                if os.path.isdir(models_root):
+                    cached = [d for d in os.listdir(models_root)
+                              if os.path.isdir(os.path.join(models_root, d))]
+                    print(f"[模型] 缓存目录: {models_root}")
+                    print(f"[模型] 已缓存模型: {', '.join(cached) if cached else '无'}")
+                else:
+                    print(f"[模型] 缓存目录不存在: {models_root}（将尝试联网下载，请检查网络）")
+                print(f"[模型] 模型源: {os.environ.get('PADDLE_PDX_MODEL_SOURCE')}，"
+                      f"联网检查: {'跳过' if os.environ.get('PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK') else '开启'}")
+                try:
+                    _TABLE_PIPELINE = create_pipeline(pipeline='table_recognition')
+                except Exception:
+                    print("[模型] 加载失败，完整堆栈如下：")
+                    print(traceback.format_exc())
+                    raise
                 print("模型加载完成")
     return _TABLE_PIPELINE
 
@@ -655,11 +705,13 @@ class ToolboxApp(tk.Tk):
 
         def worker():
             try:
-                with contextlib.redirect_stdout(self._buffer):
+                # stdout+stderr 一并重定向：paddlex 等第三方库的关键日志多走 logging/stderr
+                with contextlib.redirect_stdout(self._buffer), \
+                        contextlib.redirect_stderr(self._buffer):
                     result = func(*args)
                 self._result_box.append(result)
             except Exception as e:
-                self._buffer.write(f"\n[错误] {e}\n")
+                self._buffer.write(f"\n[错误] {e}\n[堆栈]\n{traceback.format_exc()}\n")
                 self._task_error = e
 
         self._task_thread = threading.Thread(target=worker, daemon=True)

@@ -19,6 +19,10 @@
 
 - 打包后清理临时文件：删除 `build/` 目录和 `*.spec` 文件
 - 产物：`dist/TestToolbox.exe`
+- 表格识别使用本地离线模型：模型预下载在项目 `models/` 目录（不入 git），
+  运行时通过环境变量 `PADDLE_PDX_CACHE_HOME` 指向 exe 同级的 `models/` 目录，
+  不联网。分发时 `TestToolbox.exe` 必须与 `models/` 文件夹放在同一目录。
+  若 `models/` 缺失，会自动从 BOS（百度 CDN）联网下载兜底。
 
 ## 自动维护规则
 

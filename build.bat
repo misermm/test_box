@@ -27,6 +27,7 @@ echo.
 echo ========================================
 echo Build complete!
 echo Output: dist\TestToolbox.exe
+echo Note: exe 需与 models\ 文件夹放在同一目录运行（表格识别本地模型）
 echo ========================================
 echo.
 

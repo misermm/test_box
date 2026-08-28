@@ -9,5 +9,8 @@ _test_gui.py
 gui_test.txt
 .ocr_hotkey
 
+# 表格识别本地模型（预下载，体积大，不入库）
+models/
+
 # 打包产物
 dist/

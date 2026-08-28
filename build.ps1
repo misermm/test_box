@@ -28,6 +28,7 @@ Write-Host ""
 Write-Host "========================================" -ForegroundColor Green
 Write-Host "Build complete!" -ForegroundColor Green
 Write-Host "Output: dist\TestToolbox.exe" -ForegroundColor Green
+Write-Host "Note: exe 需与 models\ 文件夹放在同一目录运行（表格识别本地模型）" -ForegroundColor Yellow
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 
