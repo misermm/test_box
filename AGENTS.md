@@ -19,13 +19,19 @@
 ```
 
 - 打包后清理临时文件：删除 `build/` 目录和 `*.spec` 文件
-- 产物：`dist/TestToolbox.exe`（单文件可直接运行，约 500MB，模型已内置）
+- 产物：`dist/TestToolbox.exe`（单文件可直接运行，约 250MB，模型已内置）
 - 表格识别使用本地离线模型：模型预下载在项目 `models/` 目录（不入 git），
   经 `--add-data "models;models"` 打包进 exe；运行时通过环境变量
   `PADDLE_PDX_CACHE_HOME` 选择模型目录（优先 `%LOCALAPPDATA%\TestToolbox\models`
   中自动检查更新下载的模型，否则用 exe 内置模型），识别不联网。
   启动时后台向 BOS（百度 CDN）HEAD 检查模型 ETag，有更新则下载到上述外部目录
   （下次启动生效）；检查/下载失败仅日志提示，继续用本地模型。
+- OCR 引擎界面可切换（`toolbox.py` 的 `_OCR_MODEL_OPTIONS`）：默认
+  PP-OCRv5 mobile 随 exe 内置；v5 server / v4 等可选模型按需联网下载到
+  `%LOCALAPPDATA%\TestToolbox\models`（持久保存，之后离线可用），选择持久化
+  在 exe 同级 `.ocr_model`。切换通过 `model_dir` 显式路径加载，不打包进 exe
+  （否则体积涨回 500MB+）。更新清理逻辑用 `_ALL_KNOWN_MODELS` 白名单，
+  不会误删已下载的可选模型。
 
 ## 自动维护规则
 

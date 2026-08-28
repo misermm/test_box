@@ -40,6 +40,82 @@ _TABLE_MODEL_NAMES = [
 _BOS_MODEL_BASE = ("https://paddle-model-ecology.bj.bcebos.com/paddlex/"
                    "official_inference_model/paddle3.0.0")
 
+# 界面可切换的 OCR 引擎选项（表格结构模型 SLANet_plus 固定不变，仅切换 det/rec）。
+# builtin=True 的随 exe 内置离线可用；其余按需联网下载到外部目录（一次下载永久保存）。
+# size_mb 为 det+rec 两个 tar 包的合计下载体积（BOS Content-Length 实测）。
+_OCR_MODEL_OPTIONS = {
+    "PP-OCRv5 mobile（推荐·快速）": {
+        "det": "PP-OCRv5_mobile_det", "rec": "PP-OCRv5_mobile_rec",
+        "builtin": True, "size_mb": 22,
+        "desc": ("优点：速度快（约4秒/图）、体积小、随程序内置离线可用。"
+                 "缺点：极模糊或低分辨率图片的精度低于 server 版。"
+                 "适用场景：清晰的屏幕截图（默认推荐）。"),
+    },
+    "PP-OCRv5 server（高精度·慢）": {
+        "det": "PP-OCRv5_server_det", "rec": "PP-OCRv5_server_rec",
+        "builtin": False, "size_mb": 173,
+        "desc": ("优点：PaddleOCR 精度最高的版本，标点、生僻字、繁体、复杂版式表现最好。"
+                 "缺点：CPU 推理约1-3分钟/图，首次使用需联网下载约173MB。"
+                 "适用场景：mobile 版识别不准（小字/模糊）或对准确率要求高于速度时。"),
+    },
+    "PP-OCRv4 mobile（旧版·快速）": {
+        "det": "PP-OCRv4_mobile_det", "rec": "PP-OCRv4_mobile_rec",
+        "builtin": False, "size_mb": 16,
+        "desc": ("优点：速度与 v5 mobile 相当、体积最小（下载约16MB）。"
+                 "缺点：精度低于 v5 mobile，无明显优势。"
+                 "适用场景：仅作对比回退（v5 识别结果异常时用来验证）。"),
+    },
+    "PP-OCRv4 server（旧版·高精度）": {
+        "det": "PP-OCRv4_server_det", "rec": "PP-OCRv4_server_rec_doc",
+        "builtin": False, "size_mb": 304,
+        "desc": ("优点：针对文档长文本优化（rec_doc），久经验证稳定。"
+                 "缺点：推理慢（约1-3分钟/图），精度低于 v5 server，下载约304MB。"
+                 "适用场景：仅作旧版对比。"),
+    },
+}
+_OCR_MODEL_DEFAULT = "PP-OCRv5 mobile（推荐·快速）"
+# 全部已知模型名（含可选项）：清理外部模型目录时仅删除不在该集合内的遗留目录
+_ALL_KNOWN_MODELS = set(_TABLE_MODEL_NAMES) | {
+    opt[k] for opt in _OCR_MODEL_OPTIONS.values() for k in ("det", "rec")}
+
+# 当前生效的 OCR 模型选择（界面切换，立即生效）
+_OCR_MODEL_CONFIG_FILE = os.path.join(_APP_DIR, ".ocr_model")
+
+
+def _load_ocr_model_choice():
+    """读取持久化的模型选择，非法值回退默认"""
+    try:
+        with open(_OCR_MODEL_CONFIG_FILE, encoding="utf-8") as f:
+            label = f.read().strip()
+        if label in _OCR_MODEL_OPTIONS:
+            return label
+    except Exception:
+        pass
+    return _OCR_MODEL_DEFAULT
+
+
+def _save_ocr_model_choice(label):
+    """持久化模型选择（失败静默，不影响切换）"""
+    try:
+        with open(_OCR_MODEL_CONFIG_FILE, "w", encoding="utf-8") as f:
+            f.write(label)
+    except Exception:
+        pass
+
+
+_OCR_MODEL_CHOICE = _load_ocr_model_choice()
+
+
+def _ocr_model_dir(name):
+    """模型文件所在目录：优先当前模型源（内置或已更新的外部目录），其次外部目录。
+    可选模型（server 等）只存在于外部目录。找不到返回 None。"""
+    for root in (_MODELS_DIR, _EXTERNAL_MODELS_DIR):
+        d = os.path.join(root, "official_models", name)
+        if os.path.isdir(d):
+            return d
+    return None
+
+
 
 def _load_models_manifest(models_dir):
     """读取模型目录下的 manifest.json（记录 {模型名: etag}），失败返回 None"""
@@ -116,59 +192,91 @@ from json_fmt import json_format, json_compact, json_sort, json_diff_spans
 
 # ==================== 截图表格识别模块 ====================
 
-# 流水线全局缓存：模型加载非常耗时，只加载一次供后续复用
+# 流水线全局缓存：模型加载非常耗时，只加载一次供后续复用。
+# 单槽缓存：切换模型后按新选择重建（旧实例若正被识别任务使用则安全等待其结束，
+# 因为调用方持有引用；全局槽位被替换不影响进行中的推理）
 _TABLE_PIPELINE = None
+_TABLE_PIPELINE_KEY = None  # 已加载流水线对应的 (det, rec) 组合
 _TABLE_PIPELINE_LOCK = threading.Lock()
 
 
 def _get_table_pipeline():
-    """获取表格识别流水线（懒加载 + 线程安全 + 全局缓存）"""
-    global _TABLE_PIPELINE
-    if _TABLE_PIPELINE is None:
-        # 锁被占用说明预热线程正在加载：给出提示再等待，避免静默阻塞
-        if not _TABLE_PIPELINE_LOCK.acquire(blocking=False):
-            print("[模型] 正在等待后台模型加载完成（首次约1-3分钟），请稍候...")
-            _TABLE_PIPELINE_LOCK.acquire()
-        try:
-            if _TABLE_PIPELINE is None:
-                from paddlex import create_pipeline
-                print("正在加载识别模型（仅首次）...")
-                # 详细过程日志，便于排查模型缺失/加载失败等问题
-                models_root = os.path.join(_MODELS_DIR, "official_models")
-                if os.path.isdir(models_root):
-                    cached = [d for d in os.listdir(models_root)
-                              if os.path.isdir(os.path.join(models_root, d))]
-                    print(f"[模型] 缓存目录: {models_root}")
-                    print(f"[模型] 已缓存模型: {', '.join(cached) if cached else '无'}")
+    """获取表格识别流水线（懒加载 + 线程安全；按当前所选 OCR 模型构建）"""
+    global _TABLE_PIPELINE, _TABLE_PIPELINE_KEY
+    opt = _OCR_MODEL_OPTIONS[_OCR_MODEL_CHOICE]
+    key = (opt["det"], opt["rec"])
+    if _TABLE_PIPELINE is not None and _TABLE_PIPELINE_KEY == key:
+        return _TABLE_PIPELINE
+    # 锁被占用说明预热线程正在加载：给出提示再等待，避免静默阻塞
+    if not _TABLE_PIPELINE_LOCK.acquire(blocking=False):
+        print("[模型] 正在等待后台模型加载完成（首次约1-3分钟），请稍候...")
+        _TABLE_PIPELINE_LOCK.acquire()
+    try:
+        if _TABLE_PIPELINE is None or _TABLE_PIPELINE_KEY != key:
+            from paddlex import create_pipeline
+            print(f"正在加载识别模型（仅首次）: {_OCR_MODEL_CHOICE} ...")
+            # 详细过程日志，便于排查模型缺失/加载失败等问题
+            models_root = os.path.join(_MODELS_DIR, "official_models")
+            if os.path.isdir(models_root):
+                cached = [d for d in os.listdir(models_root)
+                          if os.path.isdir(os.path.join(models_root, d))]
+                print(f"[模型] 缓存目录: {models_root}")
+                print(f"[模型] 已缓存模型: {', '.join(cached) if cached else '无'}")
+            else:
+                print(f"[模型] 缓存目录不存在: {models_root}（将尝试联网下载，请检查网络）")
+            print(f"[模型] 模型源: {os.environ.get('PADDLE_PDX_MODEL_SOURCE')}，"
+                  f"联网检查: {'跳过' if os.environ.get('PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK') else '开启'}")
+            # 解析所选模型的本地目录（内置模型在 _MODELS_DIR，可选模型在外部目录）
+            model_dirs = {}
+            missing = []
+            for kind in ("det", "rec"):
+                d = _ocr_model_dir(opt[kind])
+                if d is None:
+                    missing.append(opt[kind])
                 else:
-                    print(f"[模型] 缓存目录不存在: {models_root}（将尝试联网下载，请检查网络）")
-                print(f"[模型] 模型源: {os.environ.get('PADDLE_PDX_MODEL_SOURCE')}，"
-                      f"联网检查: {'跳过' if os.environ.get('PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK') else '开启'}")
-                try:
-                    # 截图场景精简流水线：
-                    # 1. 关闭文档预处理（方向/弯曲矫正）与版面检测子模型
-                    #    ——三者根本不加载（而非仅跳过推理）
-                    # 2. OCR 子模型用 PP-OCRv5 mobile 版（server 版 CPU 推理
-                    #    ~90 秒；v5 mobile 实测 4 秒且精度优于 v4）
-                    from paddlex.inference.pipelines import load_pipeline_config
-                    _slim_cfg = load_pipeline_config('table_recognition')
-                    _slim_cfg['use_doc_preprocessor'] = False
-                    _slim_cfg['use_layout_detection'] = False
-                    _ocr_sub = _slim_cfg['SubPipelines']['GeneralOCR']['SubModules']
-                    _ocr_sub['TextDetection']['model_name'] = 'PP-OCRv5_mobile_det'
-                    _ocr_sub['TextRecognition']['model_name'] = 'PP-OCRv5_mobile_rec'
-                    print("[模型] 使用精简流水线（跳过方向矫正/去畸变/版面检测，"
-                          "OCR 采用 PP-OCRv5 mobile 模型）")
-                    _TABLE_PIPELINE = create_pipeline(
-                        pipeline='table_recognition', config=_slim_cfg)
-                except Exception:
-                    print("[模型] 加载失败，完整堆栈如下：")
-                    print(traceback.format_exc())
-                    raise
-                print("模型加载完成")
-        finally:
-            _TABLE_PIPELINE_LOCK.release()
+                    model_dirs[kind] = d
+            if missing:
+                raise RuntimeError(
+                    f"所选模型尚未就绪: {', '.join(missing)}"
+                    "（正在下载或下载失败，可在\"识别模型\"下拉框中重新选择）")
+            try:
+                # 截图场景精简流水线：
+                # 1. 关闭文档预处理（方向/弯曲矫正）与版面检测子模型
+                #    ——三者根本不加载（而非仅跳过推理）
+                # 2. OCR 子模型按界面选择加载（默认 v5 mobile：4 秒/图；
+                #    可切换 server 高精度版，代价是 CPU 推理 1-3 分钟/图）
+                # 3. model_dir 显式指定本地路径：可选模型在外部目录，
+                #    不依赖 PADDLE_PDX_CACHE_HOME（exe 下可能指向临时解压目录）
+                from paddlex.inference.pipelines import load_pipeline_config
+                _slim_cfg = load_pipeline_config('table_recognition')
+                _slim_cfg['use_doc_preprocessor'] = False
+                _slim_cfg['use_layout_detection'] = False
+                _ocr_sub = _slim_cfg['SubPipelines']['GeneralOCR']['SubModules']
+                _ocr_sub['TextDetection'].update(
+                    model_name=opt["det"], model_dir=model_dirs["det"])
+                _ocr_sub['TextRecognition'].update(
+                    model_name=opt["rec"], model_dir=model_dirs["rec"])
+                print("[模型] 使用精简流水线（跳过方向矫正/去畸变/版面检测，"
+                      f"OCR: {opt['det']} + {opt['rec']}）")
+                _TABLE_PIPELINE = create_pipeline(
+                    pipeline='table_recognition', config=_slim_cfg)
+                _TABLE_PIPELINE_KEY = key
+            except Exception:
+                print("[模型] 加载失败，完整堆栈如下：")
+                print(traceback.format_exc())
+                raise
+            print("模型加载完成")
+    finally:
+        _TABLE_PIPELINE_LOCK.release()
     return _TABLE_PIPELINE
+
+
+def _prewarm_pipeline_worker():
+    """后台加载当前所选模型（启动预热/切换模型后调用，加快首次识别）"""
+    try:
+        _get_table_pipeline()
+    except Exception:
+        logging.error(f"[模型预热] 加载失败:\n{traceback.format_exc()}")
 
 
 # ==================== 模型自动更新检查 ====================
@@ -252,11 +360,12 @@ def _check_model_updates_worker(app):
 
     time.sleep(3)  # 等待 GUI 主循环就绪，使 after 通知可用
 
-    # 清理外部目录中旧版本遗留的已弃用模型（如 doc_ori/UVDoc/DocLayout），释放磁盘
+    # 清理外部目录中旧版本遗留的已弃用模型（如 doc_ori/UVDoc/DocLayout），释放磁盘。
+    # 注意用 _ALL_KNOWN_MODELS 判断：用户按需下载的可选 OCR 模型（server 等）允许保留
     ext_official = os.path.join(_EXTERNAL_MODELS_DIR, "official_models")
     if os.path.isdir(ext_official):
         for d in os.listdir(ext_official):
-            if d not in _TABLE_MODEL_NAMES and os.path.isdir(os.path.join(ext_official, d)):
+            if d not in _ALL_KNOWN_MODELS and os.path.isdir(os.path.join(ext_official, d)):
                 shutil.rmtree(os.path.join(ext_official, d), ignore_errors=True)
                 notify(f"已清理不再使用的模型: {d}")
         ext_manifest = _load_models_manifest(_EXTERNAL_MODELS_DIR)
@@ -1815,6 +1924,24 @@ class ToolboxApp(tk.Tk):
         tk.Button(hotkey_frame, text="设置快捷键", command=self._ocr_set_hotkey, width=12).pack(side="left", padx=4)
         self._label(hotkey_frame, "（设置后立即生效，如 Ctrl+Shift+T）").pack(side="left")
 
+        # 识别模型选择区域（切换立即生效；非内置模型首次使用需联网下载一次）
+        model_frame = tk.Frame(self.content, bg="#f5f6fa")
+        model_frame.pack(fill="x", pady=(0, 2))
+        self._label(model_frame, "识别模型:").pack(side="left")
+        self._ocr_model_var = tk.StringVar(value=_OCR_MODEL_CHOICE)
+        self._ocr_model_combo = ttk.Combobox(
+            model_frame, textvariable=self._ocr_model_var, state="readonly",
+            values=list(_OCR_MODEL_OPTIONS.keys()), width=28)
+        self._ocr_model_combo.pack(side="left", padx=8)
+        self._ocr_model_combo.bind(
+            "<<ComboboxSelected>>", lambda e: self._ocr_set_model())
+        # 模型说明（随选择更新：优点/缺点/适用场景）
+        self._ocr_model_desc = tk.Label(
+            self.content, text=_OCR_MODEL_OPTIONS[_OCR_MODEL_CHOICE]["desc"],
+            bg="#f5f6fa", fg="#7f8c8d", font=("Microsoft YaHei UI", 9),
+            wraplength=760, justify="left")
+        self._ocr_model_desc.pack(anchor="w", pady=(0, 8))
+
         # 操作按钮区域
         btn_frame = tk.Frame(self.content, bg="#f5f6fa")
         btn_frame.pack(fill="x", pady=(0, 8))
@@ -1882,6 +2009,62 @@ class ToolboxApp(tk.Tk):
         else:
             messagebox.showwarning("提示", f"快捷键已保存为: {hotkey}\n"
                                    "但监听器启动失败，重启程序后生效")
+
+    def _ocr_set_model(self):
+        """切换识别模型：已就绪则立即生效；未下载则确认后后台下载，完成后生效"""
+        global _OCR_MODEL_CHOICE
+        label = self._ocr_model_var.get()
+        opt = _OCR_MODEL_OPTIONS[label]
+        # 说明文字随选择即时更新（即使取消下载也保留展示）
+        self._ocr_model_desc.config(text=opt["desc"])
+        if label == _OCR_MODEL_CHOICE:
+            return
+        missing = [opt[k] for k in ("det", "rec") if _ocr_model_dir(opt[k]) is None]
+        if not missing:
+            _OCR_MODEL_CHOICE = label
+            _save_ocr_model_choice(label)
+            self._notify(f"识别模型已切换: {label}（立即生效），正在后台加载...")
+            threading.Thread(target=_prewarm_pipeline_worker, daemon=True).start()
+            return
+        if not messagebox.askyesno(
+                "下载模型",
+                f"模型 {label} 尚未下载（约 {opt['size_mb']} MB）。\n"
+                "是否现在联网下载？\n（仅下载一次，保存到本机，之后离线可用；"
+                "下载期间识别仍使用当前模型）"):
+            # 取消：下拉框还原为当前生效模型
+            self._ocr_model_var.set(_OCR_MODEL_CHOICE)
+            self._ocr_model_desc.config(
+                text=_OCR_MODEL_OPTIONS[_OCR_MODEL_CHOICE]["desc"])
+            return
+        threading.Thread(target=self._download_model_worker,
+                         args=(label, missing), daemon=True).start()
+
+    def _download_model_worker(self, label, missing):
+        """后台线程：下载所选模型到外部目录，全部成功后切换生效并预热"""
+        opt = _OCR_MODEL_OPTIONS[label]
+
+        def notify(text):
+            # _notify 直接操作 Tk 控件，非主线程必须经 after 调度
+            try:
+                self.after(0, lambda t=text: self._notify(t))
+            except Exception:
+                pass
+
+        notify(f"开始下载模型 {label}（约 {opt['size_mb']} MB），"
+               "下载完成后自动切换，期间识别仍使用原模型...")
+        for name in missing:
+            try:
+                _download_model(name, _EXTERNAL_MODELS_DIR)
+                notify(f"模型 {name} 下载完成")
+            except Exception as e:
+                logging.error(f"[模型下载] {name} 失败: {e}\n{traceback.format_exc()}")
+                notify(f"模型 {name} 下载失败: {e}（可稍后在\"识别模型\"中重试）")
+                return
+        global _OCR_MODEL_CHOICE
+        _OCR_MODEL_CHOICE = label
+        _save_ocr_model_choice(label)
+        notify(f"识别模型已切换: {label}（立即生效），正在后台加载...")
+        threading.Thread(target=_prewarm_pipeline_worker, daemon=True).start()
 
     def _load_ocr_hotkey(self):
         """加载保存的快捷键"""
@@ -2196,6 +2379,12 @@ def _run_selftest():
     """无 GUI 自检入口（TestToolbox.exe --selftest）：生成表格图并完整跑一次识别，
     结果写入 exe 同级 _selftest_result.txt，用于验证打包后识别功能真实可用。"""
     import time
+    global _OCR_MODEL_CHOICE
+
+    # 自检环境不保证可选模型已下载：缺失时回退到内置默认模型
+    opt = _OCR_MODEL_OPTIONS[_OCR_MODEL_CHOICE]
+    if any(_ocr_model_dir(opt[k]) is None for k in ("det", "rec")):
+        _OCR_MODEL_CHOICE = _OCR_MODEL_DEFAULT
 
     out = os.path.join(_APP_DIR, "_selftest_result.txt")
     with open(out, "w", encoding="utf-8") as f:
