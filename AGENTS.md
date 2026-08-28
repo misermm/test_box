@@ -2,17 +2,18 @@
 
 ## 构建规则
 
+- 使用项目本地虚拟环境 `.venv` 进行打包
 - 每次修改代码后都必须重新打包 exe（用户要求，必须遵守）：
 
 ```powershell
-python -m PyInstaller --onefile --noconsole --name "TestToolbox" `
+.venv\Scripts\python.exe -m PyInstaller --onefile --noconsole --name "TestToolbox" `
   --collect-all PIL `
   --collect-all cv2 `
   --collect-all paddle `
   --collect-all pyclipper `
   --collect-all shapely `
   --collect-all paddlex `
-  --add-data "C:\Users\X\AppData\Local\Programs\Python\Python313\Lib\site-packages\paddle\libs;paddle\libs" `
+  --add-data ".venv\Lib\site-packages\paddle\libs;paddle\libs" `
   toolbox.py
 ```
 
