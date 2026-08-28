@@ -11,7 +11,7 @@ if exist build rmdir /s /q build
 del /q *.spec 2>nul
 
 echo [2/3] Building exe...
-.venv\Scripts\python.exe -m PyInstaller --onefile --noconsole --name "TestToolbox" --collect-all PIL --collect-all cv2 --collect-all paddle --collect-all pyclipper --collect-all shapely --collect-all paddlex --add-data ".venv\Lib\site-packages\paddle\libs;paddle\libs" toolbox.py
+.venv\Scripts\python.exe -m PyInstaller --onefile --noconsole --name "TestToolbox" --collect-all PIL --collect-all cv2 --collect-all paddle --collect-all pyclipper --collect-all shapely --collect-all paddlex --add-data ".venv\Lib\site-packages\paddle\libs;paddle\libs" --add-data "models;models" toolbox.py
 
 if %ERRORLEVEL% neq 0 (
     echo Build failed!
@@ -27,7 +27,7 @@ echo.
 echo ========================================
 echo Build complete!
 echo Output: dist\TestToolbox.exe
-echo Note: exe 需与 models\ 文件夹放在同一目录运行（表格识别本地模型）
+echo Note: 单文件可直接运行，模型已内置；启动时自动检查模型更新（失败则用内置模型）
 echo ========================================
 echo.
 

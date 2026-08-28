@@ -6,18 +6,62 @@
 
 import os
 import sys
+import json
 
 # ==================== paddlex 本地离线模型配置 ====================
 # 必须在 import paddlex 之前设置：
-# 1. 模型缓存固定到应用目录下的 models/（源码运行=脚本目录，打包后=exe 目录），
+# 1. 模型缓存目录按优先级选择：
+#    a) %LOCALAPPDATA%\TestToolbox\models —— 启动时自动检查更新下载的模型（优先）
+#    b) 内置模型 —— 源码运行=项目 models/，exe 运行=打包进 exe 的 models/（--add-data）
 #    模型已预下载，运行时直接使用本地缓存，不联网
-# 2. 模型源固定为 BOS（百度 CDN，国内可达），仅在 models/ 缺模型时才会联网下载兜底
+# 2. 模型源固定为 BOS（百度 CDN，国内可达），仅在缓存缺模型时才会联网下载兜底
 # 3. 跳过各模型源连通性检查（huggingface/aistudio 不可达时会长时间卡死）
 if getattr(sys, 'frozen', False):
     _APP_DIR = os.path.dirname(sys.executable)
+    _BUILTIN_MODELS_DIR = os.path.join(sys._MEIPASS, "models")
 else:
     _APP_DIR = os.path.dirname(os.path.abspath(__file__))
-_MODELS_DIR = os.path.join(_APP_DIR, "models")
+    _BUILTIN_MODELS_DIR = os.path.join(_APP_DIR, "models")
+_EXTERNAL_MODELS_DIR = os.path.join(
+    os.environ.get('LOCALAPPDATA', _APP_DIR), "TestToolbox", "models")
+
+# 表格识别流水线所需的全部官方模型名
+_TABLE_MODEL_NAMES = [
+    "PP-LCNet_x1_0_doc_ori",
+    "UVDoc",
+    "PP-DocLayout-L",
+    "SLANet_plus",
+    "PP-OCRv4_server_det",
+    "PP-OCRv4_server_rec_doc",
+]
+_BOS_MODEL_BASE = ("https://paddle-model-ecology.bj.bcebos.com/paddlex/"
+                   "official_inference_model/paddle3.0.0")
+
+
+def _load_models_manifest(models_dir):
+    """读取模型目录下的 manifest.json（记录 {模型名: etag}），失败返回 None"""
+    try:
+        with open(os.path.join(models_dir, "manifest.json"), encoding="utf-8") as f:
+            m = json.load(f)
+        if isinstance(m, dict):
+            return m
+    except Exception:
+        pass
+    return None
+
+
+def _models_dir_complete(models_dir):
+    """模型目录是否完整：manifest 记录了全部所需模型且对应目录都存在"""
+    manifest = _load_models_manifest(models_dir)
+    if manifest is None:
+        return False
+    official = os.path.join(models_dir, "official_models")
+    return all(name in manifest and os.path.isdir(os.path.join(official, name))
+               for name in _TABLE_MODEL_NAMES)
+
+
+_MODELS_DIR = (_EXTERNAL_MODELS_DIR if _models_dir_complete(_EXTERNAL_MODELS_DIR)
+               else _BUILTIN_MODELS_DIR)
 os.environ['PADDLE_PDX_CACHE_HOME'] = _MODELS_DIR
 os.environ['PADDLE_PDX_MODEL_SOURCE'] = 'bos'
 os.environ['PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK'] = '1'
@@ -41,7 +85,6 @@ _pdx_deps.is_extra_available = lambda extra: True
 _pdx_deps.is_dep_available = lambda dep, check_version=False: True
 
 import re
-import json
 import logging
 import tempfile
 import threading
@@ -101,6 +144,118 @@ def _get_table_pipeline():
                     raise
                 print("模型加载完成")
     return _TABLE_PIPELINE
+
+
+# ==================== 模型自动更新检查 ====================
+
+def _model_remote_tags(timeout=5):
+    """向 BOS 逐个 HEAD 请求，返回 {模型名: etag}；网络不可达返回 None"""
+    import requests
+    tags = {}
+    for name in _TABLE_MODEL_NAMES:
+        url = f"{_BOS_MODEL_BASE}/{name}_infer.tar"
+        try:
+            r = requests.head(url, timeout=timeout)
+            if r.status_code != 200:
+                logging.warning(f"[模型更新] {name} HEAD 状态码 {r.status_code}")
+                return None
+            tag = r.headers.get("ETag") or r.headers.get("Last-Modified")
+            if not tag:
+                logging.warning(f"[模型更新] {name} 响应缺少 ETag/Last-Modified 头")
+                return None
+            tags[name] = tag
+        except Exception as e:
+            logging.warning(f"[模型更新] {name} 检查失败: {e}")
+            return None
+    return tags
+
+
+def _download_model(name, models_dir):
+    """下载并解压单个模型到 models_dir/official_models/{name}"""
+    from paddlex.utils.download import download_and_extract
+    url = f"{_BOS_MODEL_BASE}/{name}_infer.tar"
+    official_dir = os.path.join(models_dir, "official_models")
+    download_and_extract(url, official_dir, name)
+
+
+def _save_models_manifest(models_dir, manifest):
+    """原子写入 manifest.json"""
+    tmp = os.path.join(models_dir, "manifest.json.tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, os.path.join(models_dir, "manifest.json"))
+
+
+def _setup_update_file_log():
+    r"""把日志额外写入 %LOCALAPPDATA%\TestToolbox\update.log（exe 无控制台，便于排查）"""
+    try:
+        d = os.path.join(os.environ.get('LOCALAPPDATA', _APP_DIR), "TestToolbox")
+        os.makedirs(d, exist_ok=True)
+        h = logging.FileHandler(os.path.join(d, "update.log"), encoding="utf-8")
+        h.setFormatter(logging.Formatter(
+            '%(asctime)s [%(levelname)s] %(name)s: %(message)s'))
+        logging.getLogger().addHandler(h)
+    except Exception:
+        pass
+
+
+def _check_model_updates_worker(app):
+    """后台线程：检查模型更新，有新版本则下载到外部目录（下次启动生效）"""
+    import shutil
+    import time
+
+    def notify(text):
+        # 过程始终写 logging（exe 下落到 update.log 文件，便于排查）
+        logging.info(f"[模型更新] {text}")
+        try:
+            app.after(0, lambda t=text: app._notify(t))
+        except Exception:
+            # mainloop 未就绪或窗口已关闭时 after 会失败（RuntimeError/TclError），
+            # UI 提示丢失但更新流程继续，日志中仍有完整记录
+            pass
+
+    time.sleep(3)  # 等待 GUI 主循环就绪，使 after 通知可用
+    notify("正在检查表格识别模型更新...")
+    remote = _model_remote_tags()
+    if remote is None:
+        notify("模型更新检查失败（网络不可达），使用本地模型")
+        return
+
+    # 版本基线 = 内置模型打包时的 manifest（models/manifest.json），外部已更新的记录优先
+    builtin = _load_models_manifest(_BUILTIN_MODELS_DIR) or {}
+    local = {**builtin, **(_load_models_manifest(_EXTERNAL_MODELS_DIR) or {})}
+    changed = [n for n in _TABLE_MODEL_NAMES if local.get(n) != remote[n]]
+    if not changed:
+        notify("表格识别模型已是最新版本")
+        return
+
+    notify(f"发现 {len(changed)} 个模型有更新，开始下载...")
+    official_dir = os.path.join(_EXTERNAL_MODELS_DIR, "official_models")
+    os.makedirs(official_dir, exist_ok=True)
+    # 外部目录尚未成为完整副本时，先以内置模型为底座复制一份（保证目录完整可独立使用）
+    if not _models_dir_complete(_EXTERNAL_MODELS_DIR):
+        builtin_official = os.path.join(_BUILTIN_MODELS_DIR, "official_models")
+        if os.path.isdir(builtin_official):
+            notify("正在准备外部模型目录（首次更新，复制内置模型）...")
+            shutil.copytree(builtin_official, official_dir, dirs_exist_ok=True)
+    manifest = {n: local[n] for n in _TABLE_MODEL_NAMES if n in local}
+    ok, failed = [], []
+    for name in changed:
+        try:
+            _download_model(name, _EXTERNAL_MODELS_DIR)
+            manifest[name] = remote[name]
+            _save_models_manifest(_EXTERNAL_MODELS_DIR, manifest)
+            ok.append(name)
+            notify(f"模型 {name} 更新完成（{len(ok)}/{len(changed)}）")
+        except Exception as e:
+            failed.append(name)
+            # 删除半成品目录，避免下次被误认为有效缓存
+            bad = os.path.join(official_dir, name)
+            shutil.rmtree(bad, ignore_errors=True)
+            logging.warning(f"[模型更新] {name} 下载失败: {e}\n{traceback.format_exc()}")
+            notify(f"模型 {name} 下载失败（{e}），继续使用本地模型")
+    if ok and not failed:
+        notify("模型更新完成，重启后生效")
 
 
 class ConfirmToolbar(tk.Toplevel):
@@ -1847,6 +2002,17 @@ class ToolboxApp(tk.Tk):
 
 def main():
     app = ToolboxApp()
+    # 启动时后台检查模型更新（网络失败不影响使用，仅日志提示）
+    _setup_update_file_log()
+
+    def _run_update_check():
+        try:
+            _check_model_updates_worker(app)
+        except Exception:
+            logging.error(f"[模型更新] 检查线程异常终止:\n{traceback.format_exc()}")
+
+    t = threading.Thread(target=_run_update_check, daemon=True)
+    t.start()
     app.mainloop()
 
 

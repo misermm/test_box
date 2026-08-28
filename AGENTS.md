@@ -14,15 +14,18 @@
   --collect-all shapely `
   --collect-all paddlex `
   --add-data ".venv\Lib\site-packages\paddle\libs;paddle\libs" `
+  --add-data "models;models" `
   toolbox.py
 ```
 
 - 打包后清理临时文件：删除 `build/` 目录和 `*.spec` 文件
-- 产物：`dist/TestToolbox.exe`
+- 产物：`dist/TestToolbox.exe`（单文件可直接运行，约 500MB，模型已内置）
 - 表格识别使用本地离线模型：模型预下载在项目 `models/` 目录（不入 git），
-  运行时通过环境变量 `PADDLE_PDX_CACHE_HOME` 指向 exe 同级的 `models/` 目录，
-  不联网。分发时 `TestToolbox.exe` 必须与 `models/` 文件夹放在同一目录。
-  若 `models/` 缺失，会自动从 BOS（百度 CDN）联网下载兜底。
+  经 `--add-data "models;models"` 打包进 exe；运行时通过环境变量
+  `PADDLE_PDX_CACHE_HOME` 选择模型目录（优先 `%LOCALAPPDATA%\TestToolbox\models`
+  中自动检查更新下载的模型，否则用 exe 内置模型），识别不联网。
+  启动时后台向 BOS（百度 CDN）HEAD 检查模型 ETag，有更新则下载到上述外部目录
+  （下次启动生效）；检查/下载失败仅日志提示，继续用本地模型。
 
 ## 自动维护规则
 
