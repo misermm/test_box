@@ -48,6 +48,46 @@ _STORAGE_DIR = _load_storage_dir()
 _EXTERNAL_MODELS_DIR = os.path.join(_STORAGE_DIR, "models")
 
 
+def _config_path(name):
+    """配置文件路径：统一放在存储位置（.storage_dir 本身除外，
+    它决定存储位置在哪，必须保存在程序同级）"""
+    return os.path.join(_STORAGE_DIR, name)
+
+
+def _read_config(name):
+    """读取配置文件；兼容旧版（exe 同级）：读到旧文件则迁移到存储位置并删除旧文件"""
+    new_p = _config_path(name)
+    old_p = os.path.join(_APP_DIR, name)
+    try:
+        with open(new_p, encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception:
+        pass
+    try:
+        with open(old_p, encoding="utf-8") as f:
+            content = f.read().strip()
+        if content:
+            # 迁移到新位置后删除旧文件，保持 exe 目录干净
+            os.makedirs(_STORAGE_DIR, exist_ok=True)
+            with open(new_p, "w", encoding="utf-8") as f:
+                f.write(content)
+        os.remove(old_p)
+        return content
+    except Exception:
+        pass
+    return None
+
+
+def _write_config(name, content):
+    """写配置文件到存储位置（失败静默，不影响功能）"""
+    try:
+        os.makedirs(_STORAGE_DIR, exist_ok=True)
+        with open(_config_path(name), "w", encoding="utf-8") as f:
+            f.write(content)
+    except Exception:
+        pass
+
+
 def _external_models_dir():
     """当前外部模型目录（跟随存储位置设置，迁移完成后实时生效）"""
     return os.path.join(_STORAGE_DIR, "models")
@@ -105,29 +145,21 @@ _OCR_MODEL_DEFAULT = "PP-OCRv5 mobile（推荐·快速）"
 _ALL_KNOWN_MODELS = set(_TABLE_MODEL_NAMES) | {
     opt[k] for opt in _OCR_MODEL_OPTIONS.values() for k in ("det", "rec")}
 
-# 当前生效的 OCR 模型选择（界面切换，立即生效）
-_OCR_MODEL_CONFIG_FILE = os.path.join(_APP_DIR, ".ocr_model")
+# 当前生效的 OCR 模型选择（界面切换，立即生效；配置存放在存储位置）
+_OCR_MODEL_CONFIG_NAME = ".ocr_model"
 
 
 def _load_ocr_model_choice():
     """读取持久化的模型选择，非法值回退默认"""
-    try:
-        with open(_OCR_MODEL_CONFIG_FILE, encoding="utf-8") as f:
-            label = f.read().strip()
-        if label in _OCR_MODEL_OPTIONS:
-            return label
-    except Exception:
-        pass
+    label = _read_config(_OCR_MODEL_CONFIG_NAME)
+    if label in _OCR_MODEL_OPTIONS:
+        return label
     return _OCR_MODEL_DEFAULT
 
 
 def _save_ocr_model_choice(label):
     """持久化模型选择（失败静默，不影响切换）"""
-    try:
-        with open(_OCR_MODEL_CONFIG_FILE, "w", encoding="utf-8") as f:
-            f.write(label)
-    except Exception:
-        pass
+    _write_config(_OCR_MODEL_CONFIG_NAME, label)
 
 
 _OCR_MODEL_CHOICE = _load_ocr_model_choice()
@@ -2084,11 +2116,9 @@ class ToolboxApp(tk.Tk):
             self._notify(f"快捷键设置失败: {err}（输入: {hotkey}）")
             return
         combo, display = parsed
-        # 保存规范化文本（exe 下 _APP_DIR 为 exe 所在目录，避免写到临时解压目录）
-        config_path = os.path.join(_APP_DIR, ".ocr_hotkey")
+        # 保存规范化文本到存储位置（失败不影响内存中的立即生效）
         try:
-            with open(config_path, "w", encoding="utf-8") as f:
-                f.write(display)
+            _write_config(".ocr_hotkey", display)
         except Exception as e:
             self._notify(f"保存快捷键失败: {e}")
             return
@@ -2259,13 +2289,20 @@ class ToolboxApp(tk.Tk):
                 notify("正在复制模型文件到新位置（文件较大时需要一些时间）...")
                 shutil.copytree(old_models, new_models, dirs_exist_ok=True)
                 shutil.rmtree(old_models, ignore_errors=True)
-            # 2) 迁移日志文件（正在被句柄持有，复制而非移动；
-            #    本进程继续写旧文件，下次启动写新位置）
+            # 2) 迁移日志与配置文件（日志正被句柄持有，复制而非移动；
+            #    本进程继续写旧文件，下次启动写新位置。配置文件移动）
             for fname in ("update.log", "crash.log"):
                 src = os.path.join(old_dir, fname)
                 if os.path.isfile(src):
                     try:
                         shutil.copy2(src, os.path.join(new_dir, fname))
+                    except Exception:
+                        pass
+            for fname in (".ocr_hotkey", ".ocr_model"):
+                src = os.path.join(old_dir, fname)
+                if os.path.isfile(src):
+                    try:
+                        shutil.move(src, os.path.join(new_dir, fname))
                     except Exception:
                         pass
             # 3) 全部成功后才写入配置并切换（保证崩溃时旧配置仍有效）
@@ -2280,15 +2317,9 @@ class ToolboxApp(tk.Tk):
             finish(False)
 
     def _load_ocr_hotkey(self):
-        """加载保存的快捷键"""
-        config_path = os.path.join(_APP_DIR, ".ocr_hotkey")
-        if os.path.exists(config_path):
-            try:
-                with open(config_path, "r", encoding="utf-8") as f:
-                    return f.read().strip()
-            except:
-                pass
-        return "Ctrl+Shift+T"
+        """加载保存的快捷键（配置存放在存储位置）"""
+        hotkey = _read_config(".ocr_hotkey")
+        return hotkey if hotkey else "Ctrl+Shift+T"
 
     def _init_ocr_hotkey(self):
         """初始化全局快捷键监听（已保存的快捷键非法时回退默认并提示）"""
