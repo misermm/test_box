@@ -1247,6 +1247,16 @@ class ToolboxApp(tk.Tk):
         self.page_container = tk.Frame(right, bg="#f5f6fa")
         self.page_container.pack(fill="both", expand=True, padx=20, pady=(0, 10))
 
+        self._loading_overlay = tk.Frame(self.page_container, bg="#2c3e50", cursor="watch")
+        self._loading_label = tk.Label(
+            self._loading_overlay,
+            text="⏳ 任务进行中，请稍候...",
+            bg="#2c3e50", fg="white",
+            font=("Microsoft YaHei UI", 14, "bold")
+        )
+        self._loading_label.pack(expand=True)
+        self._loading_overlay.lower()
+
         self.log_frame = tk.LabelFrame(right, text="运行日志", bg="#f5f6fa",
                                        font=("Microsoft YaHei UI", 10))
         self.log_frame.pack(fill="both", expand=True, padx=20, pady=(0, 15))
@@ -1465,6 +1475,7 @@ class ToolboxApp(tk.Tk):
         self._on_done = on_done
         self._result_box = []
         self._task_error = None
+        self._loading_overlay.lift()
 
         def worker():
             try:
@@ -1492,6 +1503,7 @@ class ToolboxApp(tk.Tk):
 
     def _finish_task(self):
         self._running = False
+        self._loading_overlay.lower()
         if self._poll_job:
             self.after_cancel(self._poll_job)
             self._poll_job = None
@@ -3058,10 +3070,31 @@ class ToolboxApp(tk.Tk):
             self._notify("没有可复制的数据")
             return
 
-        tsv = table_data_to_tsv(self._ocr_table_data)
+        data = self._ocr_table_data
+        headers = data[0]
+        rows = data[1:]
+
+        text_col_indices = set()
+        for row in rows:
+            for i, cell in enumerate(row):
+                s = str(cell)
+                if len(s) >= 15 and s.isdigit():
+                    text_col_indices.add(i)
+
+        lines = ['\t'.join(str(h) for h in headers)]
+        for row in rows:
+            vals = []
+            for i, cell in enumerate(row):
+                v = str(cell)
+                if i in text_col_indices:
+                    v = "'" + v
+                vals.append(v)
+            lines.append('\t'.join(vals))
+        tsv = '\n'.join(lines)
+
         self.clipboard_clear()
         self.clipboard_append(tsv)
-        self._notify("已复制到剪贴板，可直接粘贴到Excel")
+        self._notify("已复制到剪贴板（TSV格式）")
 
     def _ocr_export_excel(self):
         """导出为Excel文件"""

@@ -7,6 +7,7 @@ build/
 *.spec
 _test_gui.py
 gui_test.txt
+_selftest_result.txt
 .ocr_hotkey
 .ocr_model
 .storage_dir
