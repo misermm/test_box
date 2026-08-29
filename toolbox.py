@@ -2048,21 +2048,59 @@ class ToolboxApp(tk.Tk):
             self._log_result_banner(False)
 
     def _person_copy(self):
-        """复制表格到剪贴板（TSV格式）"""
+        """复制表格到剪贴板（XLS格式，保留文本格式）"""
         if not hasattr(self, '_person_data') or not self._person_data:
             self._notify("没有可复制的内容")
             return
 
         headers = ["姓名", "性别", "年龄", "出生日期", "身份证号", "手机号", "银行卡号"]
 
-        tsv_lines = ['\t'.join(headers)]
-        for p in self._person_data:
-            tsv_lines.append('\t'.join(str(p[h]) for h in headers))
-        tsv = '\n'.join(tsv_lines)
+        try:
+            import xlwt
+            import ctypes
+            import ctypes.wintypes as wintypes
+            import io
 
-        self.clipboard_clear()
-        self.clipboard_append(tsv)
-        self._notify("已复制到剪贴板")
+            wb = xlwt.Workbook(encoding='utf-8')
+            ws = wb.add_sheet('人员信息')
+
+            text_style = xlwt.XFStyle()
+            text_style.num_format_str = '@'
+
+            for col, h in enumerate(headers):
+                ws.write(0, col, h, text_style)
+            for row, p in enumerate(self._person_data, 1):
+                for col, h in enumerate(headers):
+                    ws.write(row, col, str(p[h]), text_style)
+
+            buf = io.BytesIO()
+            wb.save(buf)
+            xls_data = buf.getvalue()
+            buf.close()
+
+            CF_XLS = ctypes.windll.user32.RegisterClipboardFormatW("Xls")
+
+            h_mem = ctypes.windll.kernel32.GlobalAlloc(0x0042, len(xls_data))
+            p_mem = ctypes.windll.kernel32.GlobalLock(h_mem)
+            ctypes.memmove(p_mem, xls_data, len(xls_data))
+            ctypes.windll.kernel32.GlobalUnlock(h_mem)
+
+            user32 = ctypes.windll.user32
+            user32.OpenClipboard(0)
+            user32.EmptyClipboard()
+            user32.SetClipboardData(CF_XLS, h_mem)
+            user32.CloseClipboard()
+
+            self._notify("已复制到剪贴板（XLS格式）")
+        except Exception:
+            headers = ["姓名", "性别", "年龄", "出生日期", "身份证号", "手机号", "银行卡号"]
+            tsv_lines = ['\t'.join(headers)]
+            for p in self._person_data:
+                tsv_lines.append('\t'.join(str(p[h]) for h in headers))
+            tsv = '\n'.join(tsv_lines)
+            self.clipboard_clear()
+            self.clipboard_append(tsv)
+            self._notify("已复制到剪贴板（TSV格式）")
 
     def _person_export_excel(self):
         """导出为Excel文件"""
