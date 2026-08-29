@@ -2105,10 +2105,8 @@ class ToolboxApp(tk.Tk):
                 for col_idx, h in enumerate(headers):
                     cell = ws.cell(row=row_num, column=col_idx + 1)
                     if col_idx + 1 in text_col_indices:
-                        # 先设格式，再赋值，强制为文本类型
                         cell.number_format = '@'
                         cell.value = str(p[h])
-                        cell._data_type = 's'  # 强制字符串类型
                     else:
                         cell.value = p[h]
 
