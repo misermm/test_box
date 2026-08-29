@@ -2327,26 +2327,53 @@ class ToolboxApp(tk.Tk):
         self._label(self.content, "点击「排序后对比」：两框 JSON 按统一规则排序，"
                                   "差异行橙色背景，差异字符红色字体。").pack(anchor="w", pady=(0, 8))
 
+        # 查看选项区域
+        opt_frame = tk.Frame(self.content, bg="#f5f6fa")
+        opt_frame.pack(fill="x", pady=(0, 5))
+        self._label(opt_frame, "查看选项:").pack(side="left")
+        self._jd_scroll_mode = tk.StringVar(value="同步滚动")
+        ttk.Combobox(opt_frame, textvariable=self._jd_scroll_mode, state="readonly",
+                     values=["同步滚动", "自由查看"], width=12).pack(side="left", padx=8)
+
+        # 主内容区域（带行号）
         paned = tk.PanedWindow(self.content, orient="horizontal", sashwidth=5,
                                bg="#f5f6fa")
         paned.pack(fill="both", expand=True)
 
-        left = tk.Frame(paned, bg="#f5f6fa")
-        tk.Label(left, text="原始JSON:", bg="#f5f6fa",
+        # 左侧：行号 + 原始JSON
+        left_frame = tk.Frame(paned, bg="#f5f6fa")
+        tk.Label(left_frame, text="原始JSON:", bg="#f5f6fa",
                  font=("Microsoft YaHei UI", 10)).pack(anchor="w")
-        self._jd_left = tk.Text(left, font=("Consolas", 10),
+        
+        left_content = tk.Frame(left_frame, bg="#f5f6fa")
+        left_content.pack(fill="both", expand=True)
+        
+        self._jd_left_line_numbers = tk.Text(left_content, width=4, font=("Consolas", 10),
+                                     bg="#f0f0f0", state="disabled", wrap="none")
+        self._jd_left_line_numbers.pack(side="left", fill="y")
+        
+        self._jd_left = tk.Text(left_content, font=("Consolas", 10),
                                 wrap="word", bg="white")
-        self._jd_left.pack(fill="both", expand=True)
+        self._jd_left.pack(side="left", fill="both", expand=True)
 
-        right = tk.Frame(paned, bg="#f5f6fa")
-        tk.Label(right, text="对比JSON:", bg="#f5f6fa",
+        # 右侧：行号 + 对比JSON
+        right_frame = tk.Frame(paned, bg="#f5f6fa")
+        tk.Label(right_frame, text="对比JSON:", bg="#f5f6fa",
                  font=("Microsoft YaHei UI", 10)).pack(anchor="w")
-        self._jd_right = tk.Text(right, font=("Consolas", 10),
+        
+        right_content = tk.Frame(right_frame, bg="#f5f6fa")
+        right_content.pack(fill="both", expand=True)
+        
+        self._jd_right_line_numbers = tk.Text(right_content, width=4, font=("Consolas", 10),
+                                      bg="#f0f0f0", state="disabled", wrap="none")
+        self._jd_right_line_numbers.pack(side="left", fill="y")
+        
+        self._jd_right = tk.Text(right_content, font=("Consolas", 10),
                                  wrap="word", bg="white")
-        self._jd_right.pack(fill="both", expand=True)
+        self._jd_right.pack(side="left", fill="both", expand=True)
 
-        paned.add(left, stretch="always")
-        paned.add(right, stretch="always")
+        paned.add(left_frame, stretch="always")
+        paned.add(right_frame, stretch="always")
 
         # 输入框内标注标签
         for w in (self._jd_left, self._jd_right):
@@ -2354,11 +2381,56 @@ class ToolboxApp(tk.Tk):
             w.tag_config("changed_fg", foreground="#d63031",
                          font=("Consolas", 10, "bold"))                    # 红色加粗
 
+        # 绑定滚动事件（实现同步滚动）
+        self._jd_left.bind("<Scroll>", self._jd_on_scroll_left)
+        self._jd_right.bind("<Scroll>", self._jd_on_scroll_right)
+        self._jd_left.bind("<MouseWheel>", self._jd_on_scroll_left)
+        self._jd_right.bind("<MouseWheel>", self._jd_on_scroll_right)
+
         btn_row = self._row(self.content)
         tk.Button(btn_row, text="排序后对比", command=self._jd_compare,
                   bg="#1abc9c", fg="white",
                   font=("Microsoft YaHei UI", 11, "bold"), width=14).pack(side="left", pady=6)
         tk.Button(btn_row, text="清空", command=self._jd_clear, width=8).pack(side="left", padx=(10, 0))
+
+    def _jd_update_line_numbers(self, text_widget, line_numbers_widget):
+        """更新行号显示"""
+        line_numbers_widget.config(state="normal")
+        line_numbers_widget.delete("1.0", "end")
+        line_count = int(text_widget.index("end-1c").split(".")[0])
+        line_numbers_text = "\n".join(str(i) for i in range(1, line_count + 1))
+        line_numbers_widget.insert("1.0", line_numbers_text)
+        line_numbers_widget.config(state="disabled")
+
+    def _jd_sync_scroll_left(self, *args):
+        """左侧滚动时同步右侧"""
+        self._jd_right.yview_moveto(args[0])
+        self._jd_right_line_numbers.yview_moveto(args[0])
+
+    def _jd_sync_scroll_right(self, *args):
+        """右侧滚动时同步左侧"""
+        self._jd_left.yview_moveto(args[0])
+        self._jd_left_line_numbers.yview_moveto(args[0])
+
+    def _jd_on_scroll_left(self, event):
+        """左侧滚动事件处理"""
+        if self._jd_scroll_mode.get() == "同步滚动":
+            # 获取滚动位置
+            first, last = self._jd_left.yview()
+            # 同步右侧
+            self._jd_right.yview_moveto(first)
+            self._jd_right_line_numbers.yview_moveto(first)
+            self._jd_left_line_numbers.yview_moveto(first)
+
+    def _jd_on_scroll_right(self, event):
+        """右侧滚动事件处理"""
+        if self._jd_scroll_mode.get() == "同步滚动":
+            # 获取滚动位置
+            first, last = self._jd_right.yview()
+            # 同步左侧
+            self._jd_left.yview_moveto(first)
+            self._jd_left_line_numbers.yview_moveto(first)
+            self._jd_right_line_numbers.yview_moveto(first)
 
     def _jd_compare(self):
         t1 = self._jd_left.get("1.0", "end-1c")
@@ -2404,6 +2476,16 @@ class ToolboxApp(tk.Tk):
             for (a, b, kind) in spans:
                 tag = "changed_bg" if kind == "line" else "changed_fg"
                 w.tag_add(tag, f"{a[0]}.{a[1]}", f"{b[0]}.{b[1]}")
+        # 更新行号显示
+        self._jd_update_line_numbers(self._jd_left, self._jd_left_line_numbers)
+        self._jd_update_line_numbers(self._jd_right, self._jd_right_line_numbers)
+        # 在日志中显示差异行号信息
+        left_lines = sorted(set(a[0][0] for a, b, kind in left_spans if kind == "line"))
+        right_lines = sorted(set(a[0][0] for a, b, kind in right_spans if kind == "line"))
+        if left_lines:
+            self._log(f"左侧差异行: {', '.join(map(str, left_lines))}\n")
+        if right_lines:
+            self._log(f"右侧差异行: {', '.join(map(str, right_lines))}\n")
         self._log_result_banner(True)
 
     def _jd_clear(self):
@@ -2411,6 +2493,11 @@ class ToolboxApp(tk.Tk):
             w.delete("1.0", "end")
             w.tag_remove("changed_bg", "1.0", "end")
             w.tag_remove("changed_fg", "1.0", "end")
+        # 清空行号
+        for w in (self._jd_left_line_numbers, self._jd_right_line_numbers):
+            w.config(state="normal")
+            w.delete("1.0", "end")
+            w.config(state="disabled")
 
     # =============== 页面12: 截图识别表格 ===============
     def _show_page_ocr_table(self):
