@@ -629,7 +629,11 @@ class ConfirmToolbar(tk.Toplevel):
 
 
 class RegionSelector(tk.Toplevel):
-    """全屏遮罩 + 鼠标拖拽选区：选区内保持明亮原样，选区外暗淡，蓝色实线边框"""
+    """全屏截图选择器：打开即整屏暗色（预合成暗色底图），选区内保持明亮；
+    松开鼠标后可拖动 8 个手柄调整选区、拖动选区内部移动选区，再确认或取消"""
+
+    _MIN_SIZE = 10        # 选区最小尺寸（像素）
+    _HANDLE_R = 6         # 手柄命中半径（像素）
 
     def __init__(self, parent=None, callback=None):
         super().__init__(parent)
@@ -639,10 +643,16 @@ class RegionSelector(tk.Toplevel):
         self._hint_id = None
         self._result_image = None
         self._toolbar = None
-        self._sel_coords = None
+        self._sel_coords = None   # 当前选区 (x1, y1, x2, y2)，None=无选区
+        self._mode = None         # 按下后的操作: 'new' | 'move' | 'resize' | None
+        self._handle = None       # resize 时命中的手柄名
+        self._press_x = self._press_y = 0   # move/resize 按下位置
+        self._orig_sel = None     # move/resize 按下时的选区快照
+        self._render_pending = False
 
         self._overlay_ids = []
-        self._screen_img = None   # 稍后异步抓取
+        self._screen_img = None   # 亮色截图（视图坐标）
+        self._dark_img = None     # 半暗截图（视图坐标，作为底图）
         self._orig_img = None     # 原始物理像素截图
         self._scale_x = 1.0       # 物理像素 / 逻辑坐标（DPI 缩放修正）
         self._scale_y = 1.0
@@ -651,15 +661,15 @@ class RegionSelector(tk.Toplevel):
         self.attributes("-fullscreen", True)
         self.attributes("-topmost", True)
 
-        self.canvas = tk.Canvas(self, cursor="cross", bg="black",
+        self.canvas = tk.Canvas(self, cursor="cross", bg="#111111",
                                 highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
 
-        # 提示文字（先显示加载提示）
+        # 提示文字（先显示加载提示；窗口底色本身即深色，打开即暗）
         hint_id = self.canvas.create_text(
             self.winfo_screenwidth() // 2,
             30,
-            text="拖动鼠标框选表格区域 | 松开后点 ✔ 识别 / ✘ 取消 | 按 ESC 取消",
+            text="拖动鼠标框选表格区域 | 松开后可拖动边角手柄调整、拖动内部移动 | ✔ 识别 / ✘ 取消 / ESC 取消",
             fill="white",
             font=("Microsoft YaHei UI", 14, "bold"),
         )
@@ -668,7 +678,7 @@ class RegionSelector(tk.Toplevel):
         self.after(30, self._prepare_background)
 
     def _prepare_background(self):
-        """窗口显示后抓取整屏并铺底图（含 DPI 缩放比例记录）"""
+        """窗口显示后抓取整屏并铺暗色底图（含 DPI 缩放比例记录）"""
         try:
             vw, vh = max(1, self.winfo_vrootwidth()), max(1, self.winfo_vrootheight())
             # 抓屏期间隐藏自身，避免把遮罩窗口本身拍进截图
@@ -685,94 +695,191 @@ class RegionSelector(tk.Toplevel):
             else:
                 shot = orig
             self._orig_img = orig      # 保留原始物理像素截图用于裁剪
-            self._photo = ImageTk.PhotoImage(shot, master=self)
             self._screen_img = shot
+            # 预合成半暗底图：打开即整屏暗色（不用 stipple 半透明矩形，
+            # 渲染与平台无关，选区外内容仍可辨认）
+            self._dark_img = Image.blend(
+                shot.convert("RGB"),
+                Image.new("RGB", shot.size, (0, 0, 0)), 0.55)
+            self._dark_photo = ImageTk.PhotoImage(self._dark_img, master=self)
             self.canvas.delete("all")
-            self.canvas.create_image(0, 0, image=self._photo, anchor="nw")
+            self.canvas.create_image(0, 0, image=self._dark_photo, anchor="nw")
             self._hint_id = self.canvas.create_text(
                 self.winfo_screenwidth() // 2, 30,
-                text="拖动鼠标框选表格区域 | 松开后点 ✔ 识别 / ✘ 取消 | 按 ESC 取消",
+                text="拖动鼠标框选表格区域 | 松开后可拖动边角手柄调整、拖动内部移动 | ✔ 识别 / ✘ 取消 / ESC 取消",
                 fill="white",
                 font=("Microsoft YaHei UI", 14, "bold"),
             )
-            # 打开即整屏置灰，拖拽时选区实时恢复明亮（见 _on_drag）
-            W, H = self.winfo_screenwidth(), self.winfo_screenheight()
-            self._overlay_ids = [self.canvas.create_rectangle(
-                0, 0, W, H, fill="black", stipple="gray50", outline="")]
             self.canvas.tag_raise(self._hint_id)
         except Exception:
             self.finish(None)
+            return
 
         # 绑定事件
         self.canvas.bind("<ButtonPress-1>", self._on_press)
         self.canvas.bind("<B1-Motion>", self._on_drag)
         self.canvas.bind("<ButtonRelease-1>", self._on_release)
+        self.canvas.bind("<Motion>", self._on_hover)
         self.bind("<Escape>", self._on_cancel)
+
+    # ---------------- 选区渲染 ----------------
 
     def _clear_overlays(self):
         for item in self._overlay_ids:
             self.canvas.delete(item)
         self._overlay_ids.clear()
 
-    def _draw_dim_and_border(self, x1, y1, x2, y2):
-        """用四块半透明黑色矩形盖住选区外部，再加蓝色实线边框"""
+    def _handle_positions(self, sel=None):
+        """8 个手柄位置：四角 + 四边中点"""
+        x1, y1, x2, y2 = sel if sel else self._sel_coords
+        cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+        return {"nw": (x1, y1), "n": (cx, y1), "ne": (x2, y1),
+                "e": (x2, cy), "se": (x2, y2), "s": (cx, y2),
+                "sw": (x1, y2), "w": (x1, cy)}
+
+    def _render_selection(self):
+        """重绘选区：亮色区域 + 蓝色边框 + 8 个白色手柄 + 尺寸标签"""
         self._clear_overlays()
-        W = self.winfo_screenwidth()
-        H = self.winfo_screenheight()
-        opts = dict(fill="black", stipple="gray50", outline="")
         c = self.canvas
-        self._overlay_ids = [
-            c.create_rectangle(0, 0, W, y1, **opts),
-            c.create_rectangle(0, y2, W, H, **opts),
-            c.create_rectangle(0, y1, x1, y2, **opts),
-            c.create_rectangle(x2, y1, W, y2, **opts),
-            c.create_rectangle(x1, y1, x2, y2, outline="#1e6fd9",
-                               width=2),
-        ]
-        # 提示文字保持在遮罩之上，不被置灰遮挡
+        if self._sel_coords is None:
+            if self._hint_id is not None:
+                c.tag_raise(self._hint_id)
+            return
+        x1, y1, x2, y2 = self._sel_coords
+        # 亮色选区：从亮色截图裁剪贴到暗色底图上
+        crop = self._screen_img.crop((x1, y1, x2, y2))
+        self._bright_photo = ImageTk.PhotoImage(crop, master=self)
+        ids = [c.create_image(x1, y1, image=self._bright_photo, anchor="nw"),
+               c.create_rectangle(x1, y1, x2, y2, outline="#1e6fd9", width=2)]
+        # 调整手柄（四角 + 四边中点）
+        r = 4
+        for hx, hy in self._handle_positions().values():
+            ids.append(c.create_rectangle(hx - r, hy - r, hx + r, hy + r,
+                                          fill="white", outline="#1e6fd9", width=1))
+        # 尺寸标签（选区上方，越界放选区内顶部）
+        label_y = y1 - 14 if y1 - 14 > 26 else y1 + 16
+        ids.append(c.create_text(x1, label_y, anchor="w", fill="#ffe97f",
+                                 font=("Microsoft YaHei UI", 10, "bold"),
+                                 text=f"{x2 - x1} × {y2 - y1}"))
+        self._overlay_ids = ids
         if self._hint_id is not None:
             c.tag_raise(self._hint_id)
+
+    def _schedule_render(self):
+        """合并同一事件循环内的多次重绘请求（拖拽流畅）"""
+        if self._render_pending:
+            return
+        self._render_pending = True
+        self.after_idle(self._do_render)
+
+    def _do_render(self):
+        self._render_pending = False
+        if self.winfo_exists():
+            self._render_selection()
 
     def _hide_toolbar(self):
         if self._toolbar is not None:
             self._toolbar.dismiss()
             self._toolbar = None
 
+    # ---------------- 命中测试与光标 ----------------
+
+    def _hit_test(self, x, y):
+        """返回 ('handle', 名称) / ('inside', None) / ('outside', None)"""
+        if self._sel_coords is None:
+            return ("outside", None)
+        for name, (hx, hy) in self._handle_positions().items():
+            if abs(x - hx) <= self._HANDLE_R and abs(y - hy) <= self._HANDLE_R:
+                return ("handle", name)
+        x1, y1, x2, y2 = self._sel_coords
+        if x1 < x < x2 and y1 < y < y2:
+            return ("inside", None)
+        return ("outside", None)
+
+    _HANDLE_CURSORS = {"nw": "size_nw_se", "se": "size_nw_se",
+                       "ne": "size_ne_sw", "sw": "size_ne_sw",
+                       "n": "size_ns", "s": "size_ns",
+                       "e": "size_we", "w": "size_we"}
+
+    def _on_hover(self, event):
+        """未按下时根据悬停位置切换光标，提示可调整/移动/新选"""
+        if self._screen_img is None or self._mode is not None:
+            return
+        kind, handle = self._hit_test(event.x, event.y)
+        if kind == "handle":
+            self.canvas.config(cursor=self._HANDLE_CURSORS[handle])
+        elif kind == "inside":
+            self.canvas.config(cursor="fleur")
+        else:
+            self.canvas.config(cursor="cross")
+
+    # ---------------- 鼠标交互 ----------------
+
     def _on_press(self, event):
         if self._screen_img is None:
             return
+        kind, handle = self._hit_test(event.x, event.y)
         self._hide_toolbar()
-        self._sel_coords = None
-        self.start_x = event.x
-        self.start_y = event.y
+        self._press_x, self._press_y = event.x, event.y
+        self._orig_sel = self._sel_coords
+        if kind == "handle":
+            self._mode, self._handle = "resize", handle
+        elif kind == "inside":
+            self._mode, self._handle = "move", None
+        else:
+            # 选区外按下：开始框选新区域
+            self._mode, self._handle = "new", None
+            self._sel_coords = None
+            self.start_x, self.start_y = event.x, event.y
+            self._render_selection()
 
     def _on_drag(self, event):
-        if self._screen_img is None:
+        if self._screen_img is None or self._mode is None:
             return
-        # 拖拽中实时重绘：选区内明亮、选区外置灰 + 蓝色边框跟随鼠标
-        x1, y1 = min(self.start_x, event.x), min(self.start_y, event.y)
-        x2, y2 = max(self.start_x, event.x), max(self.start_y, event.y)
-        self._draw_dim_and_border(x1, y1, x2, y2)
+        W, H = self.winfo_screenwidth(), self.winfo_screenheight()
+        if self._mode == "new":
+            x1, y1 = min(self.start_x, event.x), min(self.start_y, event.y)
+            x2, y2 = max(self.start_x, event.x), max(self.start_y, event.y)
+            self._sel_coords = (x1, y1, x2, y2)
+        elif self._mode == "move":
+            # 拖动选区内部：整体平移（限制在屏幕内）
+            x1, y1, x2, y2 = self._orig_sel
+            dx = max(-x1, min(event.x - self._press_x, W - x2))
+            dy = max(-y1, min(event.y - self._press_y, H - y2))
+            self._sel_coords = (x1 + dx, y1 + dy, x2 + dx, y2 + dy)
+        elif self._mode == "resize":
+            # 拖动手柄：调整对应边/角，不允许越过对边（保持最小尺寸）
+            x1, y1, x2, y2 = self._orig_sel
+            h = self._handle
+            m = self._MIN_SIZE
+            if "n" in h:
+                y1 = max(0, min(event.y, y2 - m))
+            if "s" in h:
+                y2 = min(H - 1, max(event.y, y1 + m))
+            if "w" in h:
+                x1 = max(0, min(event.x, x2 - m))
+            if "e" in h:
+                x2 = min(W - 1, max(event.x, x1 + m))
+            self._sel_coords = (x1, y1, x2, y2)
+        self._schedule_render()
 
     def _on_release(self, event):
         # 背景未就绪时 _on_press 被忽略：release 也必须忽略，
         # 否则会以 (0,0) 为起点算出用户从未拖出的幻影选区
-        if self._screen_img is None:
+        if self._screen_img is None or self._mode is None:
             return
-        x1 = min(self.start_x, event.x)
-        y1 = min(self.start_y, event.y)
-        x2 = max(self.start_x, event.x)
-        y2 = max(self.start_y, event.y)
-
-        width = x2 - x1
-        height = y2 - y1
-
-        if width < 10 or height < 10:
-            self._on_cancel()
+        mode = self._mode
+        self._mode = None
+        if mode == "new" and self._sel_coords is not None:
+            # 新框选：过小视为误点击，取消整个截图
+            x1, y1, x2, y2 = self._sel_coords
+            if x2 - x1 < self._MIN_SIZE or y2 - y1 < self._MIN_SIZE:
+                self._on_cancel()
+                return
+        if self._sel_coords is None:
             return
-
-        self._sel_coords = (x1, y1, x2, y2)
-        self._draw_dim_and_border(x1, y1, x2, y2)
+        self._render_selection()
+        x1, y1, x2, y2 = self._sel_coords
         self._toolbar = ConfirmToolbar(
             self, x2 + 6, y2 + 6,
             on_confirm=self._confirm_selection,
@@ -1095,7 +1202,7 @@ class ToolboxApp(tk.Tk):
                                        font=("Microsoft YaHei UI", 10))
         self.log_frame.pack(fill="both", expand=True, padx=20, pady=(0, 15))
 
-        self.log = tk.Text(self.log_frame, height=8, bg="#2d3436", fg="#b2bec3",
+        self.log = tk.Text(self.log_frame, height=14, bg="#2d3436", fg="#b2bec3",
                            font=("Consolas", 9), state="disabled", wrap="word")
         self.log.pack(fill="both", expand=True, padx=5, pady=5)
         self.log.tag_config("ok", foreground="#2ecc71",
