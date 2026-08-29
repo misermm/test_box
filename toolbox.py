@@ -2048,23 +2048,91 @@ class ToolboxApp(tk.Tk):
             self._log_result_banner(False)
 
     def _person_copy(self):
-        """复制表格到剪贴板（TSV格式，直接粘贴进Excel单元格）"""
+        """复制表格到剪贴板（CF_HTML + CF_UNICODETEXT，Excel粘贴后身份证号等为文本格式）"""
         if not hasattr(self, '_person_data') or not self._person_data:
             self._notify("没有可复制的内容")
             return
 
         headers = ["姓名", "性别", "年龄", "出生日期", "身份证号", "手机号", "银行卡号"]
+        text_cols = {"身份证号", "手机号", "银行卡号"}
 
-        # 构造TSV（制表符分隔，Excel直接粘贴进单元格）
-        lines = ['\t'.join(headers)]
+        # ---- 构造HTML表格（mso-number-format:\@ 强制Excel文本格式）----
+        import html as _html
+        rows = []
+        rows.append('<tr>' + ''.join(f'<th>{h}</th>' for h in headers) + '</tr>')
         for p in self._person_data:
-            lines.append('\t'.join(str(p[h]) for h in headers))
-        tsv = '\n'.join(lines)
+            cells = []
+            for h in headers:
+                val = _html.escape(str(p[h]))
+                if h in text_cols:
+                    cells.append(f'<td style="mso-number-format:\'\\@\'">{val}</td>')
+                else:
+                    cells.append(f'<td>{val}</td>')
+            rows.append('<tr>' + ''.join(cells) + '</tr>')
 
-        # 使用tkinter剪贴板（CF_UNICODETEXT格式，Excel可正确识别为文本）
-        self.clipboard_clear()
-        self.clipboard_append(tsv)
-        self._notify("已复制到剪贴板（TSV格式），可直接粘贴到Excel")
+        fragment = '\n'.join(rows)
+
+        # 完整HTML文档
+        html_doc = (f'<html>\r\n'
+                    f'<body>\r\n'
+                    f'<!--StartFragment-->\r\n'
+                    f'{fragment}\r\n'
+                    f'<!--EndFragment-->\r\n'
+                    f'</body>\r\n'
+                    f'</html>')
+
+        # CF_HTML要求的头部（字节偏移量必须精确）
+        # 头部固定102字节：Version(14)+StartHTML(22)+EndHTML(20)+StartFragment(24)+EndFragment(22)
+        hdr_tpl = ('Version:0.9\r\n'
+                   'StartHTML:{:010d}\r\n'
+                   'EndHTML:{:010d}\r\n'
+                   'StartFragment:{:010d}\r\n'
+                   'EndFragment:{:010d}\r\n')
+        hdr_len = len(hdr_tpl.format(0, 0, 0, 0).encode('ascii'))
+
+        html_body = html_doc.encode('utf-8')
+        frag_start = hdr_len + html_body.find(b'<!--StartFragment-->') + len(b'<!--StartFragment-->')
+        frag_end = hdr_len + html_body.find(b'<!--EndFragment-->')
+
+        hdr_bytes = hdr_tpl.format(hdr_len, hdr_len + len(html_body),
+                                   frag_start, frag_end).encode('ascii')
+        cf_html_data = hdr_bytes + html_body
+
+        # ---- 构造TSV（纯文本备用）----
+        tsv_lines = ['\t'.join(headers)]
+        for p in self._person_data:
+            tsv_lines.append('\t'.join(str(p[h]) for h in headers))
+        tsv = '\n'.join(tsv_lines)
+
+        # ---- Windows API写剪贴板 ----
+        import ctypes
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+
+        CF_HTML = user32.RegisterClipboardFormatW('HTML Format')
+        CF_UNICODETEXT = 13
+
+        html_wide = cf_html_data
+        text_wide = tsv.encode('utf-16-le') + b'\x00\x00'
+
+        h_html = kernel32.GlobalAlloc(0x0042, len(html_wide))
+        h_text = kernel32.GlobalAlloc(0x0042, len(text_wide))
+
+        p = kernel32.GlobalLock(h_html)
+        ctypes.memmove(p, html_wide, len(html_wide))
+        kernel32.GlobalUnlock(h_html)
+
+        p = kernel32.GlobalLock(h_text)
+        ctypes.memmove(p, text_wide, len(text_wide))
+        kernel32.GlobalUnlock(h_text)
+
+        user32.OpenClipboard(0)
+        user32.EmptyClipboard()
+        user32.SetClipboardData(CF_HTML, h_html)
+        user32.SetClipboardData(CF_UNICODETEXT, h_text)
+        user32.CloseClipboard()
+
+        self._notify("已复制到剪贴板（Excel格式），可直接粘贴到Excel")
 
     def _person_export_excel(self):
         """导出为Excel文件"""
