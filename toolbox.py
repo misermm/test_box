@@ -1154,6 +1154,9 @@ class ToolboxApp(tk.Tk):
         self._text_type_var = tk.StringVar(value="汉字+英文+中英文标点")
         self._http_url_var = tk.StringVar()
 
+        # 随机人员信息相关变量
+        self._person_data = []
+
         # OCR表格识别相关变量
         self._ocr_hotkey_var = tk.StringVar(value="Ctrl+Shift+T")
         self._ocr_table_data = []
@@ -1857,7 +1860,7 @@ class ToolboxApp(tk.Tk):
     # =============== 页面7: 随机人员信息 ===============
     def _show_page_person(self):
         self.title_label.config(text="随机人员信息")
-        self._label(self.content, "根据输入的年龄和性别，生成随机人员信息（身份证号、姓名、手机号等）。").pack(anchor="w", pady=(0, 8))
+        self._label(self.content, "根据输入的年龄和性别，生成随机人员信息（身份证号、姓名、手机号、银行卡号等）。").pack(anchor="w", pady=(0, 8))
 
         r1 = self._row(self.content)
         self._label(r1, "年龄:").pack(side="left")
@@ -1875,11 +1878,19 @@ class ToolboxApp(tk.Tk):
         self._person_count_var = tk.StringVar(value="5")
         tk.Entry(r3, textvariable=self._person_count_var, width=8).pack(side="left", padx=8)
 
+        r4 = self._row(self.content)
+        self._label(r4, "开户银行:").pack(side="left")
+        self._person_bank_var = tk.StringVar(value="工商银行")
+        ttk.Combobox(r4, textvariable=self._person_bank_var, state="readonly",
+                     values=["工商银行", "建设银行", "农业银行", "中国银行"],
+                     width=12).pack(side="left", padx=8)
+
         btn_row = self._row(self.content)
         tk.Button(btn_row, text="生成", command=self._person_run,
                   bg="#1abc9c", fg="white",
                   font=("Microsoft YaHei UI", 11, "bold"), width=16).pack(side="left", pady=(6, 0))
         tk.Button(btn_row, text="复制全部", command=self._person_copy, width=12).pack(side="left", padx=(10, 0))
+        tk.Button(btn_row, text="导出Excel", command=self._person_export_excel, width=12).pack(side="left", padx=(10, 0))
 
         tk.Label(self.content, text="生成结果:", bg="#f5f6fa",
                  font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(8, 3))
@@ -1899,6 +1910,7 @@ class ToolboxApp(tk.Tk):
             return
 
         gender = self._person_gender_var.get()
+        bank_name = self._person_bank_var.get()
 
         try:
             count = int(self._person_count_var.get())
@@ -1911,23 +1923,33 @@ class ToolboxApp(tk.Tk):
 
         self._person_result.delete("1.0", "end")
         self._person_result.insert("1.0", "正在生成...")
-        self._start_task(self._person_generate, age, gender, count,
+        self._start_task(self._person_generate, age, gender, count, bank_name,
                          on_done=self._person_done)
 
-    def _person_generate(self, age, gender, count):
-        lines = []
-        header = f"{'姓名':<8} {'性别':<4} {'年龄':<4} {'出生日期':<12} {'身份证号':<20} {'手机号':<12}"
-        lines.append(header)
-        lines.append("-" * 70)
+    def _person_generate(self, age, gender, count, bank_name):
+        headers = ["姓名", "性别", "年龄", "出生日期", "身份证号", "手机号", "银行卡号"]
+        person_list = []
 
         for _ in range(count):
-            person = generate_person(age, gender)
-            line = (f"{person['姓名']:<8} {person['性别']:<4} {person['年龄']:<4} "
-                    f"{person['出生日期']:<12} {person['身份证号']:<20} {person['手机号']:<12}")
+            person = generate_person(age, gender, bank_name)
+            person_list.append(person)
+
+        # 保存结构化数据用于复制和导出
+        self._person_data = person_list
+
+        # 生成显示文本
+        lines = []
+        header_line = f"{'姓名':<8} {'性别':<4} {'年龄':<4} {'出生日期':<12} {'身份证号':<20} {'手机号':<13} {'银行卡号':<20}"
+        lines.append(header_line)
+        lines.append("-" * 85)
+
+        for p in person_list:
+            line = (f"{p['姓名']:<8} {p['性别']:<4} {p['年龄']:<4} "
+                    f"{p['出生日期']:<12} {p['身份证号']:<20} {p['手机号']:<13} {p['银行卡号']:<20}")
             lines.append(line)
 
         result = "\n".join(lines)
-        print(f"已生成 {count} 条人员信息")
+        print(f"已生成 {count} 条人员信息（银行: {bank_name}）")
         return result
 
     def _person_done(self, result):
@@ -1939,13 +1961,78 @@ class ToolboxApp(tk.Tk):
             self._log_result_banner(False)
 
     def _person_copy(self):
-        text = self._person_result.get("1.0", "end-1c")
-        if not text:
+        """复制表格到剪贴板（TSV格式，可直接粘贴到Excel）"""
+        if not hasattr(self, '_person_data') or not self._person_data:
             self._notify("没有可复制的内容")
             return
+
+        headers = ["姓名", "性别", "年龄", "出生日期", "身份证号", "手机号", "银行卡号"]
+        table_data = [headers] + [[p[h] for h in headers] for p in self._person_data]
+
+        tsv = table_data_to_tsv(table_data)
         self.clipboard_clear()
-        self.clipboard_append(text)
-        self._notify("已复制到剪贴板")
+        self.clipboard_append(tsv)
+        self._notify("已复制到剪贴板（Excel格式），可直接粘贴")
+
+    def _person_export_excel(self):
+        """导出为Excel文件"""
+        if not hasattr(self, '_person_data') or not self._person_data:
+            self._notify("没有可导出的数据")
+            return
+
+        try:
+            import openpyxl
+        except ImportError:
+            return self._person_export_csv()
+
+        f = filedialog.asksaveasfilename(
+            title="导出Excel文件",
+            defaultextension=".xlsx",
+            initialfile="人员信息.xlsx",
+            filetypes=[("Excel文件", "*.xlsx"), ("所有文件", "*.*")]
+        )
+        if not f:
+            return
+
+        try:
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "人员信息"
+
+            headers = ["姓名", "性别", "年龄", "出生日期", "身份证号", "手机号", "银行卡号"]
+            ws.append(headers)
+
+            for p in self._person_data:
+                ws.append([p[h] for h in headers])
+
+            wb.save(f)
+            self._log(f"已导出Excel: {f}\n")
+        except Exception as e:
+            messagebox.showerror("错误", f"导出失败: {e}")
+
+    def _person_export_csv(self):
+        """导出为CSV文件（备选方案）"""
+        import csv
+
+        f = filedialog.asksaveasfilename(
+            title="导出CSV文件",
+            defaultextension=".csv",
+            initialfile="人员信息.csv",
+            filetypes=[("CSV文件", "*.csv"), ("所有文件", "*.*")]
+        )
+        if not f:
+            return
+
+        try:
+            headers = ["姓名", "性别", "年龄", "出生日期", "身份证号", "手机号", "银行卡号"]
+            with open(f, "w", newline="", encoding="utf-8-sig") as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=headers)
+                writer.writeheader()
+                for p in self._person_data:
+                    writer.writerow(p)
+            self._log(f"已导出CSV: {f}\n")
+        except Exception as e:
+            messagebox.showerror("错误", f"导出失败: {e}")
 
     # =============== 页面8: URL编码解码 ===============
     def _show_page_url(self):

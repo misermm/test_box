@@ -1,8 +1,16 @@
 #!/usr/bin/env python3
-"""生成随机人员信息（身份证号、姓名、手机号等）"""
+"""生成随机人员信息（身份证号、姓名、手机号、银行卡号等）"""
 
 import random
 from datetime import datetime, timedelta
+
+# 四大银行BIN码前缀（6位）
+BANK_BINS = {
+    "工商银行": ["621226", "622202", "621281", "622203", "622208"],
+    "建设银行": ["621700", "436742", "622700", "622707", "622708"],
+    "农业银行": ["622848", "621282", "622828", "622829", "622830"],
+    "中国银行": ["621661", "622760", "456351", "621662", "621663"],
+}
 
 # 常见姓氏（百家姓前100）
 SURNAMES = (
@@ -147,17 +155,48 @@ def generate_phone():
     return prefix + suffix
 
 
-def generate_person(age=30, gender="女"):
+def luhn_checksum(card_number):
+    """计算Luhn校验码"""
+    digits = [int(d) for d in card_number]
+    odd_digits = digits[-1::-2]
+    even_digits = digits[-2::-2]
+    total = sum(odd_digits)
+    for d in even_digits:
+        total += sum(divmod(d * 2, 10))
+    return (10 - (total % 10)) % 10
+
+
+def generate_bank_card(bank_name="工商银行"):
+    """
+    生成19位银行卡号
+    
+    参数:
+        bank_name: 银行名称（工商银行/建设银行/农业银行/中国银行）
+    返回:
+        19位银行卡号字符串
+    """
+    if bank_name not in BANK_BINS:
+        bank_name = "工商银行"
+    
+    bin_prefix = random.choice(BANK_BINS[bank_name])
+    # BIN(6位) + 随机数字(12位) + 校验位(1位) = 19位
+    body = bin_prefix + ''.join([str(random.randint(0, 9)) for _ in range(12)])
+    check_digit = luhn_checksum(body + '0')
+    return body + str(check_digit)
+
+
+def generate_person(age=30, gender="女", bank_name="工商银行"):
     """
     生成完整人员信息（所有字段基于同一个人）
     
     返回字典:
-        name: 姓名
-        gender: 性别
-        age: 年龄
-        birth_date: 出生日期
-        id_card: 身份证号
-        phone: 手机号
+        姓名: 姓名
+        性别: 性别
+        年龄: 年龄
+        出生日期: 出生日期
+        身份证号: 身份证号
+        手机号: 手机号
+        银行卡号: 银行卡号
     """
     # 先生成出生日期，后续所有字段基于此日期
     birth_date = generate_birth_date(age)
@@ -167,6 +206,7 @@ def generate_person(age=30, gender="女"):
     
     name = generate_name(gender)
     phone = generate_phone()
+    bank_card = generate_bank_card(bank_name)
     
     return {
         "姓名": name,
@@ -175,12 +215,14 @@ def generate_person(age=30, gender="女"):
         "出生日期": birth_date.strftime("%Y-%m-%d"),
         "身份证号": id_card,
         "手机号": phone,
+        "银行卡号": bank_card,
     }
 
 
 if __name__ == "__main__":
     # 测试生成
     for i in range(5):
-        person = generate_person(age=30, gender="女")
+        person = generate_person(age=30, gender="女", bank_name="工商银行")
         print(f"{person['姓名']} | {person['性别']} | {person['年龄']}岁 | "
-              f"{person['出生日期']} | {person['身份证号']} | {person['手机号']}")
+              f"{person['出生日期']} | {person['身份证号']} | {person['手机号']} | "
+              f"{person['银行卡号']}")
