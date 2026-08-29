@@ -8,6 +8,19 @@ import os
 import sys
 import json
 
+# Windows 平台：隐藏子进程的控制台窗口（防止exe启动时闪现cmd窗口）
+if sys.platform == 'win32':
+    import subprocess as _subprocess
+    _original_popen = _subprocess.Popen
+    class _HiddenPopen(_original_popen):
+        def __init__(self, *args, **kwargs):
+            if 'startupinfo' not in kwargs:
+                kwargs['startupinfo'] = _subprocess.STARTUPINFO()
+                kwargs['startupinfo'].dwFlags |= _subprocess.STARTF_USESHOWWINDOW
+                kwargs['startupinfo'].wShowWindow = _subprocess.SW_HIDE
+            super().__init__(*args, **kwargs)
+    _subprocess.Popen = _HiddenPopen
+
 # ==================== paddlex 本地离线模型配置 ====================
 # 必须在 import paddlex 之前设置：
 # 1. 模型缓存目录按优先级选择：
@@ -34,7 +47,7 @@ _LEGACY_STORAGE_DIR = os.path.join(os.environ.get('LOCALAPPDATA', _APP_DIR), "Te
 
 
 def _default_storage_dir():
-    return _APP_DIR
+    return os.path.join(_APP_DIR, "cache")
 
 
 def _load_storage_dir():
@@ -413,12 +426,15 @@ def _setup_update_file_log():
 
 
 def _migrate_legacy_storage(log=None):
-    """一次性把旧默认存储位置（%LOCALAPPDATA%\TestToolbox）的数据迁移到
-    当前存储位置。仅当 exe 运行、用户未自定义存储位置且旧目录存在时执行；
+    """一次性把旧默认存储位置的数据迁移到当前存储位置。
+    支持两种迁移：
+    1. 从 %LOCALAPPDATA%\TestToolbox 迁移到当前存储位置（旧版本）
+    2. 从 exe 所在目录迁移到 exe 所在目录/cache（版本升级）
+    仅当 exe 运行、用户未自定义存储位置且旧目录存在时执行；
     模型目录合并复制（保留已下载的可选模型），配置/日志移动，完成后删除
-    旧目录释放 C 盘。失败仅记日志，下次启动重试。"""
+    旧目录。失败仅记日志，下次启动重试。"""
     def _log(text):
-        logging.info(f"[legacy迁移] {text}")
+        logging.info(f"[storage迁移] {text}")
         if log:
             try:
                 log(text)
@@ -432,27 +448,56 @@ def _migrate_legacy_storage(log=None):
         # 用户已自定义存储位置：说明已主动迁移过，不动旧目录
         if os.path.exists(_STORAGE_CONFIG_FILE):
             return
-        if not os.path.isdir(_LEGACY_STORAGE_DIR):
-            return
-        if os.path.normcase(_LEGACY_STORAGE_DIR) == os.path.normcase(_STORAGE_DIR):
-            return
+        
         import shutil
-        _log(f"检测到旧版本数据({_LEGACY_STORAGE_DIR})，正在迁移到 {_STORAGE_DIR}...")
-        # 模型目录：合并复制（可能数百 MB，含已下载的可选模型）
-        legacy_models = os.path.join(_LEGACY_STORAGE_DIR, "models")
-        if os.path.isdir(legacy_models):
-            shutil.copytree(legacy_models, _external_models_dir(), dirs_exist_ok=True)
-        for fname in (".ocr_model", ".ocr_hotkey", "update.log", "crash.log"):
-            src = os.path.join(_LEGACY_STORAGE_DIR, fname)
-            if os.path.isfile(src):
-                try:
-                    shutil.move(src, os.path.join(_STORAGE_DIR, fname))
-                except Exception:
-                    pass
-        shutil.rmtree(_LEGACY_STORAGE_DIR, ignore_errors=True)
-        _log(f"旧版本数据已迁移到 {_STORAGE_DIR}，旧目录已清理")
+        
+        # 迁移1：从 %LOCALAPPDATA%\TestToolbox 迁移（旧版本兼容）
+        if os.path.isdir(_LEGACY_STORAGE_DIR) and os.path.normcase(_LEGACY_STORAGE_DIR) != os.path.normcase(_STORAGE_DIR):
+            _log(f"检测到旧版本数据({_LEGACY_STORAGE_DIR})，正在迁移到 {_STORAGE_DIR}...")
+            legacy_models = os.path.join(_LEGACY_STORAGE_DIR, "models")
+            if os.path.isdir(legacy_models):
+                shutil.copytree(legacy_models, _external_models_dir(), dirs_exist_ok=True)
+            for fname in (".ocr_model", ".ocr_hotkey", "update.log", "crash.log"):
+                src = os.path.join(_LEGACY_STORAGE_DIR, fname)
+                if os.path.isfile(src):
+                    try:
+                        shutil.move(src, os.path.join(_STORAGE_DIR, fname))
+                    except Exception:
+                        pass
+            shutil.rmtree(_LEGACY_STORAGE_DIR, ignore_errors=True)
+            _log(f"旧版本数据已迁移到 {_STORAGE_DIR}，旧目录已清理")
+        
+        # 迁移2：从 exe 所在目录迁移到 cache 子目录（版本升级）
+        # 检查 exe 所在目录是否有需要迁移的文件
+        _APP_DIR_CACHE = os.path.join(_APP_DIR, "cache")
+        if os.path.normcase(_STORAGE_DIR) == os.path.normcase(_APP_DIR_CACHE):
+            # 当前存储位置就是 cache，检查旧位置是否有文件需要迁移
+            has_files_to_migrate = False
+            for fname in ("models", ".ocr_model", ".ocr_hotkey", "update.log", "crash.log"):
+                src = os.path.join(_APP_DIR, fname)
+                if os.path.exists(src):
+                    has_files_to_migrate = True
+                    break
+            
+            if has_files_to_migrate:
+                _log(f"检测到旧版本数据在 {_APP_DIR}，正在迁移到 {_STORAGE_DIR}...")
+                # 迁移模型目录
+                old_models = os.path.join(_APP_DIR, "models")
+                if os.path.isdir(old_models):
+                    shutil.copytree(old_models, _external_models_dir(), dirs_exist_ok=True)
+                    shutil.rmtree(old_models, ignore_errors=True)
+                # 迁移配置和日志文件
+                for fname in (".ocr_model", ".ocr_hotkey", "update.log", "crash.log"):
+                    src = os.path.join(_APP_DIR, fname)
+                    if os.path.isfile(src):
+                        try:
+                            dst = os.path.join(_STORAGE_DIR, fname)
+                            shutil.move(src, dst)
+                        except Exception:
+                            pass
+                _log(f"旧版本数据已迁移到 {_STORAGE_DIR}")
     except Exception as e:
-        logging.error(f"[legacy迁移] 失败: {e}\n{traceback.format_exc()}")
+        logging.error(f"[storage迁移] 失败: {e}\n{traceback.format_exc()}")
 
 
 def _check_model_updates_worker(app):
@@ -1283,7 +1328,7 @@ class ToolboxApp(tk.Tk):
                 label.config(bg="#34495e", fg="#ecf0f1")
 
     def _page_title(self, index):
-        return ["图片转 PDF", "图片批量转 ZIP", "文件分割", "文件合并",
+        return ["图片转 PDF", "单图单PDF转ZIP", "文件分割", "文件合并",
                 "生成指定大小文件", "生成指定长度文本", "随机人员信息",
                 "URL编码解码", "接口请求", "JSON格式化", "JSON对比", "截图识别表格", "关于"][index]
 
@@ -1534,7 +1579,7 @@ class ToolboxApp(tk.Tk):
         self._pdf_images.clear()
 
     def _pdf_choose_out(self):
-        d = filedialog.askdirectory(title="选择输出目录")
+        d = filedialog.askdirectory(title="选择输出路径", initialdir=self._pdf_out_var.get())
         if d:
             self._pdf_out_var.set(d)
 
@@ -1551,9 +1596,9 @@ class ToolboxApp(tk.Tk):
         self._start_task(merge_images_to_pdf, list(self._pdf_images), out,
                          on_done=self._on_done_success)
 
-    # =============== 页面2: 图片批量转ZIP ===============
+    # =============== 页面2: 单图单PDF转ZIP ===============
     def _show_page_zip(self):
-        self.title_label.config(text="图片批量转 ZIP")
+        self.title_label.config(text="单图单PDF转ZIP")
 
         self._label(self.content, "每张图片单独转换为一个 PDF，全部打包到一个 ZIP 压缩包中。").pack(anchor="w", pady=(0, 8))
 
@@ -1597,7 +1642,7 @@ class ToolboxApp(tk.Tk):
         self._zip_images.clear()
 
     def _zip_choose_out(self):
-        d = filedialog.askdirectory(title="选择输出目录")
+        d = filedialog.askdirectory(title="选择输出路径", initialdir=self._zip_out_var.get())
         if d:
             self._zip_out_var.set(d)
 
@@ -1629,7 +1674,7 @@ class ToolboxApp(tk.Tk):
         tk.Entry(r2, textvariable=self._split_size_var, width=12).pack(side="left", padx=8)
 
         r3 = self._row(self.content)
-        self._label(r3, "输出目录:").pack(side="left")
+        self._label(r3, "输出路径:").pack(side="left")
         tk.Entry(r3, textvariable=self._split_out_var).pack(side="left", padx=8, fill="x", expand=True)
         tk.Button(r3, text="浏览", command=self._split_choose_out).pack(side="left")
 
@@ -1648,7 +1693,7 @@ class ToolboxApp(tk.Tk):
             self._split_in_var.set(f)
 
     def _split_choose_out(self):
-        d = filedialog.askdirectory(title="选择输出目录")
+        d = filedialog.askdirectory(title="选择输出路径", initialdir=self._split_out_var.get())
         if d:
             self._split_out_var.set(d)
 
@@ -1667,7 +1712,7 @@ class ToolboxApp(tk.Tk):
             return
         out = self._split_out_var.get().strip()
         if not out:
-            self._notify("请设置输出目录")
+            self._notify("请设置输出路径")
             return
         os.makedirs(out, exist_ok=True)
         self._start_task(split_to_zip, f, out, size,
@@ -1719,7 +1764,7 @@ class ToolboxApp(tk.Tk):
         self._merge_files.clear()
 
     def _merge_choose_out(self):
-        d = filedialog.askdirectory(title="选择输出目录")
+        d = filedialog.askdirectory(title="选择输出路径", initialdir=self._merge_out_var.get())
         if d:
             self._merge_out_var.set(d)
 
@@ -1756,7 +1801,7 @@ class ToolboxApp(tk.Tk):
                      values=["正常", "损坏"], width=10).pack(side="left", padx=8)
 
         r3 = self._row(self.content)
-        self._label(r3, "输出目录:").pack(side="left")
+        self._label(r3, "输出路径:").pack(side="left")
         tk.Entry(r3, textvariable=self._gen_out_var).pack(side="left", padx=8, fill="x", expand=True)
         tk.Button(r3, text="浏览", command=self._gen_choose_out).pack(side="left")
 
@@ -1766,7 +1811,7 @@ class ToolboxApp(tk.Tk):
                   font=("Microsoft YaHei UI", 11, "bold"), width=18).pack(pady=(6, 0))
 
     def _gen_choose_out(self):
-        d = filedialog.askdirectory(title="选择输出目录")
+        d = filedialog.askdirectory(title="选择输出路径", initialdir=self._gen_out_var.get())
         if d:
             self._gen_out_var.set(d)
 
@@ -1784,7 +1829,7 @@ class ToolboxApp(tk.Tk):
         ext = ext_map.get(ftype, "bin")
         out_dir = self._gen_out_var.get().strip()
         if not out_dir:
-            self._notify("请设置输出目录")
+            self._notify("请设置输出路径")
             return
         os.makedirs(out_dir, exist_ok=True)
         corrupted = self._gen_corrupt_var.get() == "损坏"
