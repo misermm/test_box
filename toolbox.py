@@ -2002,29 +2002,30 @@ class ToolboxApp(tk.Tk):
         # 保存结构化数据用于复制和导出
         self._person_data = person_list
 
-        # 生成显示文本（中文字符按2列计算宽度）
-        def display_width(s):
-            w = 0
-            for ch in str(s):
+        # 生成显示文本（用像素级宽度精确对齐）
+        # Consolas 10号字体: 空格/ASCII字符=7px, 中文字符=13px
+        SPACE_PX = 7
+        COL_TARGET_PX = [56, 28, 28, 84, 140, 91, 140]  # 各列目标像素宽度
+
+        def pad_px(s, target_px):
+            s = str(s)
+            w = len(s) * SPACE_PX
+            for ch in s:
                 if '\u4e00' <= ch <= '\u9fff' or '\u3000' <= ch <= '\u303f' or '\uff00' <= ch <= '\uffef':
-                    w += 2
-                else:
-                    w += 1
-            return w
-
-        def pad(s, width):
-            return str(s) + ' ' * max(0, width - display_width(s))
-
-        col_widths = [8, 4, 4, 12, 20, 13, 20]  # 每列期望的显示宽度
+                    w += SPACE_PX  # 中文多1个空格宽度
+            gap = target_px - w
+            if gap <= 0:
+                return s
+            return s + ' ' * ((gap + SPACE_PX - 1) // SPACE_PX)
 
         lines = []
-        header_line = ' '.join(pad(h, col_widths[i]) for i, h in enumerate(headers))
+        header_line = ' '.join(pad_px(h, COL_TARGET_PX[i]) for i, h in enumerate(headers))
         lines.append(header_line)
-        lines.append("-" * (sum(col_widths) + len(col_widths) - 1))
+        lines.append("-" * 100)
 
         for p in person_list:
             vals = [p[h] for h in headers]
-            line = ' '.join(pad(vals[i], col_widths[i]) for i in range(len(headers)))
+            line = ' '.join(pad_px(vals[i], COL_TARGET_PX[i]) for i in range(len(headers)))
             lines.append(line)
 
         result = "\n".join(lines)
@@ -2048,7 +2049,7 @@ class ToolboxApp(tk.Tk):
         headers = ["姓名", "性别", "年龄", "出生日期", "身份证号", "手机号", "银行卡号"]
         text_cols = {"身份证号", "手机号", "银行卡号"}
 
-        # 构造Excel友好的HTML片段（身份证号等用mso-number-format强制文本）
+        # 构造Excel友好的HTML（含Office XML命名空间，确保mso-number-format生效）
         rows_html = []
         rows_html.append('<tr>' + ''.join(f'<th>{h}</th>' for h in headers) + '</tr>')
         for p in self._person_data:
@@ -2056,26 +2057,37 @@ class ToolboxApp(tk.Tk):
             for h in headers:
                 val = str(p[h])
                 if h in text_cols:
-                    cells.append(f'<td style="mso-number-format:\\@">{val}</td>')
+                    # mso-number-format 强制文本，Excel会将@识别为文本格式
+                    cells.append(f'<td style="mso-number-format:\'\\@\'">{val}</td>')
                 else:
                     cells.append(f'<td>{val}</td>')
             rows_html.append('<tr>' + ''.join(cells) + '</tr>')
 
         fragment = ''.join(rows_html)
 
-        # CF_HTML 要求的固定头部，offset 占位后替换
+        # CF_HTML 标准格式头部
         pre = ('Version:0.9\r\n'
                'StartHTML:0000000000\r\n'
                'EndHTML:0000000000\r\n'
                'StartFragment:0000000000\r\n'
                'EndFragment:0000000000\r\n'
-               '<html><body>\r\n'
-               '<!--StartFragment-->\r\n')
+               '<html xmlns:o="urn:schemas-microsoft-com:office:office" '
+               'xmlns:x="urn:schemas-microsoft-com:office:excel" '
+               'xmlns="http://www.w3.org/TR/REC-html40">\r\n'
+               '<head><meta charset="utf-8">\r\n'
+               '<!--[if gte mso 9]><xml><x:ExcelWorkbook>'
+               '<x:ExcelWorksheets><x:ExcelWorksheet>'
+               '<x:Name>Sheet1</x:Name>'
+               '<x:WorksheetOptions><x:DisplayGridlines/>'
+               '</x:WorksheetOptions></x:ExcelWorksheet>'
+               '</x:ExcelWorksheets></x:ExcelWorkbook></xml>'
+               '<![endif]--></head>\r\n'
+               '<body>\r\n<!--StartFragment-->\r\n')
         post = '\r\n<!--EndFragment-->\r\n</body></html>'
 
         body = pre + fragment + post
 
-        # 计算真实 offset 并回填
+        # 回填偏移量
         start_html = 0
         end_html = len(body.encode('utf-8'))
         start_frag = len(pre.encode('utf-8'))
@@ -2086,18 +2098,26 @@ class ToolboxApp(tk.Tk):
                 f'EndHTML:{end_html:010d}\r\n'
                 f'StartFragment:{start_frag:010d}\r\n'
                 f'EndFragment:{end_frag:010d}\r\n'
-                '<html><body>\r\n'
-                '<!--StartFragment-->\r\n'
+                '<html xmlns:o="urn:schemas-microsoft-com:office:office" '
+                'xmlns:x="urn:schemas-microsoft-com:office:excel" '
+                'xmlns="http://www.w3.org/TR/REC-html40">\r\n'
+                '<head><meta charset="utf-8">\r\n'
+                '<!--[if gte mso 9]><xml><x:ExcelWorkbook>'
+                '<x:ExcelWorksheets><x:ExcelWorksheet>'
+                '<x:Name>Sheet1</x:Name>'
+                '<x:WorksheetOptions><x:DisplayGridlines/>'
+                '</x:WorksheetOptions></x:ExcelWorksheet>'
+                '</x:ExcelWorksheets></x:ExcelWorkbook></xml>'
+                '<![endif]--></head>\r\n'
+                '<body>\r\n<!--StartFragment-->\r\n'
                 f'{fragment}\r\n'
-                '<!--EndFragment-->\r\n'
-                '</body></html>')
+                '<!--EndFragment-->\r\n</body></html>')
 
-        # 同时构造纯文本 TSV
+        # 纯文本 TSV
         tsv = table_data_to_tsv([headers] + [[p[h] for h in headers] for p in self._person_data])
 
-        # 使用 Windows 原生 API 写入剪贴板，确保 CF_HTML 格式正确
+        # 使用 Windows API 写剪贴板
         import ctypes
-        from ctypes import wintypes
 
         user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32
@@ -2108,7 +2128,7 @@ class ToolboxApp(tk.Tk):
         body_utf8 = body.encode('utf-8')
         body_wide = tsv.encode('utf-16-le') + b'\x00\x00'
 
-        h_html = kernel32.GlobalAlloc(0x0042, len(body_utf8) + 1)  # GMEM_MOVEABLE|GMEM_ZEROINIT
+        h_html = kernel32.GlobalAlloc(0x0042, len(body_utf8) + 1)
         h_text = kernel32.GlobalAlloc(0x0042, len(body_wide))
 
         p_html = kernel32.GlobalLock(h_html)
