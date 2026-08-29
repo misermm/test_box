@@ -2048,7 +2048,7 @@ class ToolboxApp(tk.Tk):
             self._log_result_banner(False)
 
     def _person_copy(self):
-        """复制表格到剪贴板（XLS格式，保留文本格式）"""
+        """复制表格到剪贴板（通过Excel COM保留文本格式）"""
         if not hasattr(self, '_person_data') or not self._person_data:
             self._notify("没有可复制的内容")
             return
@@ -2056,44 +2056,42 @@ class ToolboxApp(tk.Tk):
         headers = ["姓名", "性别", "年龄", "出生日期", "身份证号", "手机号", "银行卡号"]
 
         try:
-            import xlwt
-            import ctypes
-            import ctypes.wintypes as wintypes
-            import io
+            import openpyxl
+            import subprocess
+            import tempfile
 
-            wb = xlwt.Workbook(encoding='utf-8')
-            ws = wb.add_sheet('人员信息')
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            for col, h in enumerate(headers, 1):
+                c = ws.cell(row=1, column=col, value=h)
+                c.number_format = '@'
+            for row, p in enumerate(self._person_data, 2):
+                for col, h in enumerate(headers, 1):
+                    c = ws.cell(row=row, column=col, value=str(p[h]))
+                    c.number_format = '@'
 
-            text_style = xlwt.XFStyle()
-            text_style.num_format_str = '@'
+            tmp = os.path.join(tempfile.gettempdir(), '_clip_copy.xlsx')
+            wb.save(tmp)
 
-            for col, h in enumerate(headers):
-                ws.write(0, col, h, text_style)
-            for row, p in enumerate(self._person_data, 1):
-                for col, h in enumerate(headers):
-                    ws.write(row, col, str(p[h]), text_style)
+            ps = (
+                "$excel = New-Object -ComObject Excel.Application\n"
+                "$excel.Visible = $false\n"
+                "$excel.DisplayAlerts = $false\n"
+                "$wb = $excel.Workbooks.Open('" + tmp.replace("'", "''") + "')\n"
+                "$ws = $wb.Sheets.Item(1)\n"
+                "$ws.UsedRange.Copy()\n"
+                "$wb.Close($false)\n"
+                "$excel.Quit()\n"
+                "[System.Runtime.Interopservices.Marshal]::ReleaseComObject($excel) | Out-Null\n"
+            )
+            r = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+                capture_output=True, timeout=30
+            )
+            if r.returncode != 0:
+                raise RuntimeError(r.stderr.decode(errors='replace'))
 
-            buf = io.BytesIO()
-            wb.save(buf)
-            xls_data = buf.getvalue()
-            buf.close()
-
-            GMEM_MOVEABLE = 0x0002
-            GMEM_DDESHARE = 0x0020
-            CF_BIFF8 = ctypes.windll.user32.RegisterClipboardFormatW("Biff8")
-
-            h_mem = ctypes.windll.kernel32.GlobalAlloc(GMEM_MOVEABLE | GMEM_DDESHARE, len(xls_data))
-            p_mem = ctypes.windll.kernel32.GlobalLock(h_mem)
-            ctypes.memmove(p_mem, xls_data, len(xls_data))
-            ctypes.windll.kernel32.GlobalUnlock(h_mem)
-
-            user32 = ctypes.windll.user32
-            user32.OpenClipboard(0)
-            user32.EmptyClipboard()
-            user32.SetClipboardData(CF_BIFF8, h_mem)
-            user32.CloseClipboard()
-
-            self._notify("已复制到剪贴板（XLS格式）")
+            self._notify("已复制到剪贴板（Excel格式）")
         except Exception:
             tsv_lines = ['\t'.join(headers)]
             for p in self._person_data:
@@ -2102,6 +2100,11 @@ class ToolboxApp(tk.Tk):
             self.clipboard_clear()
             self.clipboard_append(tsv)
             self._notify("已复制到剪贴板（TSV格式）")
+        finally:
+            try:
+                os.remove(tmp)
+            except Exception:
+                pass
 
     def _person_export_excel(self):
         """导出为Excel文件"""
