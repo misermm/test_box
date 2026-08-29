@@ -2091,15 +2091,19 @@ class ToolboxApp(tk.Tk):
             headers = ["姓名", "性别", "年龄", "出生日期", "身份证号", "手机号", "银行卡号"]
             ws.append(headers)
 
-            for p in self._person_data:
-                ws.append([p[h] for h in headers])
+            # 身份证号、手机号、银行卡号列索引（从0开始）
+            text_col_indices = [4, 5, 6]
 
-            # 设置身份证号、手机号、银行卡号列为文本格式（避免科学计数法）
-            text_columns = [5, 6, 7]  # 列索引：身份证号、手机号、银行卡号
-            for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
-                for col_idx in text_columns:
-                    cell = row[col_idx - 1]
-                    cell.number_format = '@'  # 文本格式
+            for p in self._person_data:
+                row_data = [p[h] for h in headers]
+                row_idx = ws.max_row + 1
+                for col_idx, value in enumerate(row_data):
+                    cell = ws.cell(row=row_idx, column=col_idx + 1)
+                    if col_idx in text_col_indices:
+                        cell.value = str(value)
+                        cell.number_format = '@'  # 文本格式
+                    else:
+                        cell.value = value
 
             # 自动调整列宽
             for col in ws.columns:
