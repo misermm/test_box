@@ -1169,6 +1169,14 @@ class ToolboxApp(tk.Tk):
         self._init_ocr_hotkey()
 
     # ---------------- UI 搭建 ----------------
+    # 菜单结构：一级为分组名（可折叠），二级为功能页；独立功能（组名为 None）保持一级
+    _MENU_GROUPS = [
+        ("文件处理", [0, 1, 2, 3]),       # 图片转PDF/图片批量转ZIP/文件分割/文件合并
+        ("数据生成", [4, 5, 6]),          # 生成指定大小文件/生成指定长度文本/随机人员信息
+        ("开发工具", [7, 8, 9, 10]),      # URL编码解码/接口请求/JSON格式化/JSON对比
+        (None, [11, 12]),                 # 截图识别表格/关于（独立功能不分组）
+    ]
+
     def _build_ui(self):
         left = tk.Frame(self, bg="#2c3e50", width=200)
         left.pack(side="left", fill="y")
@@ -1177,15 +1185,7 @@ class ToolboxApp(tk.Tk):
         tk.Label(left, text="功能菜单", fg="white", bg="#2c3e50",
                  font=("Microsoft YaHei UI", 14, "bold")).pack(pady=(20, 10))
 
-        self.menu_list = tk.Listbox(
-            left, bg="#34495e", fg="white", bd=0, highlightthickness=0,
-            selectbackground="#1abc9c", font=("Microsoft YaHei UI", 11),
-            activestyle="none",
-        )
-        for item in ["图片转 PDF", "图片批量转ZIP", "文件分割", "文件合并", "生成指定大小文件", "生成指定长度文本", "随机人员信息", "URL编码解码", "接口请求", "JSON格式化", "JSON对比", "截图识别表格", "关于"]:
-            self.menu_list.insert("end", item)
-        self.menu_list.pack(fill="both", expand=True, padx=8, pady=8)
-        self.menu_list.bind("<<ListboxSelect>>", self._on_menu_select)
+        self._build_menu(left)
 
         right = tk.Frame(self, bg="#f5f6fa")
         right.pack(side="left", fill="both", expand=True)
@@ -1216,10 +1216,65 @@ class ToolboxApp(tk.Tk):
                       lambda e: self.log.yview_scroll(-1 * int(e.delta / 120), "units"))
 
     # ---------------- 菜单切换 ----------------
-    def _on_menu_select(self, _event=None):
-        sel = self.menu_list.curselection()
-        if sel:
-            self._select_menu(sel[0])
+    def _build_menu(self, parent):
+        """构建二级分组菜单：组头可折叠/展开，组内为功能项；独立功能直接一级显示"""
+        self._menu_item_labels = {}  # 页面索引 -> 菜单项 label
+        container = tk.Frame(parent, bg="#2c3e50")
+        container.pack(fill="both", expand=True, padx=8, pady=8)
+
+        for group, indices in self._MENU_GROUPS:
+            if group is None:
+                for idx in indices:
+                    self._make_menu_item(container, idx, indent=False)
+                continue
+            body = tk.Frame(container, bg="#2c3e50")
+            header = tk.Label(
+                container, text="▾ " + group, anchor="w", cursor="hand2",
+                fg="#95a5a6", bg="#2c3e50",
+                font=("Microsoft YaHei UI", 10, "bold"))
+            header.pack(fill="x", pady=(8, 2))
+
+            def _toggle(h=header, b=body, g=group):
+                if b.winfo_ismapped():
+                    b.pack_forget()
+                    h.config(text="▸ " + g)
+                else:
+                    b.pack(fill="x")
+                    h.config(text="▾ " + g)
+
+            header.bind("<Button-1>", lambda e, t=_toggle: t())
+            for idx in indices:
+                self._make_menu_item(body, idx, indent=True)
+
+    def _make_menu_item(self, parent, index, indent):
+        """单个菜单项：悬停高亮，选中后青色底"""
+        pad = 18 if indent else 0
+        label = tk.Label(
+            parent, text=self._page_title(index), anchor="w", cursor="hand2",
+            fg="#ecf0f1", bg="#34495e", padx=10 + pad, pady=5,
+            font=("Microsoft YaHei UI", 10))
+        label.pack(fill="x", pady=1)
+
+        def _hover(_e, l=label):
+            if self._current_menu_index != index:
+                l.config(bg="#3d566e")
+
+        def _leave(_e, l=label):
+            if self._current_menu_index != index:
+                l.config(bg="#34495e")
+
+        label.bind("<Enter>", _hover)
+        label.bind("<Leave>", _leave)
+        label.bind("<Button-1>", lambda e: self._select_menu(index))
+        self._menu_item_labels[index] = label
+
+    def _update_menu_highlight(self):
+        """选中的菜单项青色高亮，其余恢复常态"""
+        for idx, label in self._menu_item_labels.items():
+            if idx == self._current_menu_index:
+                label.config(bg="#1abc9c", fg="white")
+            else:
+                label.config(bg="#34495e", fg="#ecf0f1")
 
     def _page_title(self, index):
         return ["图片转 PDF", "图片批量转 ZIP", "文件分割", "文件合并",
@@ -1227,16 +1282,13 @@ class ToolboxApp(tk.Tk):
                 "URL编码解码", "接口请求", "JSON格式化", "JSON对比", "截图识别表格", "关于"][index]
 
     def _select_menu(self, index):
-        self.menu_list.selection_clear(0, "end")
-        self.menu_list.selection_set(index)
-        self.menu_list.activate(index)
-
         self._save_current_log()
 
         if self.content is not None:
             self.content.pack_forget()
 
         self._current_menu_index = index
+        self._update_menu_highlight()
         self._log_owner = index
         self.title_label.config(text=self._page_title(index))
 
