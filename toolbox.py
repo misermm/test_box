@@ -2002,26 +2002,41 @@ class ToolboxApp(tk.Tk):
         # 保存结构化数据用于复制和导出
         self._person_data = person_list
 
-        # 生成显示文本（用像素级宽度精确对齐）
-        # Consolas 10号字体: 空格/ASCII字符=7px, 中文字符=13px
+        # 生成显示文本（像素级精确对齐）
+        # Consolas 10号字体: 空格/ASCII=7px, 中文=13px
+        # 每列宽度 = 该列最长内容的像素宽度 + 2个空格边距
+        # 计算实际数据最大宽度
         SPACE_PX = 7
-        COL_TARGET_PX = [56, 28, 28, 84, 140, 91, 140]  # 各列目标像素宽度
+        HEADER_CHARS = [2, 2, 2, 10, 18, 11, 19]  # 表头字符数(中文按2)
 
-        def pad_px(s, target_px):
+        def str_pixel_w(s):
             s = str(s)
             w = len(s) * SPACE_PX
             for ch in s:
                 if '\u4e00' <= ch <= '\u9fff' or '\u3000' <= ch <= '\u303f' or '\uff00' <= ch <= '\uffef':
-                    w += SPACE_PX  # 中文多1个空格宽度
+                    w += SPACE_PX
+            return w
+
+        def pad_px(s, target_px):
+            s = str(s)
+            w = str_pixel_w(s)
             gap = target_px - w
             if gap <= 0:
                 return s
             return s + ' ' * ((gap + SPACE_PX - 1) // SPACE_PX)
 
+        # 计算每列目标像素(表头字符数*SPACE_PX + 数据最大宽度,取两者最大值)
+        data_col_max = [0] * len(headers)
+        for p in person_list:
+            for i, h in enumerate(headers):
+                data_col_max[i] = max(data_col_max[i], str_pixel_w(p[h]))
+        COL_TARGET_PX = [max(HEADER_CHARS[i] * SPACE_PX, data_col_max[i] + SPACE_PX * 2)
+                         for i in range(len(headers))]
+
         lines = []
         header_line = ' '.join(pad_px(h, COL_TARGET_PX[i]) for i, h in enumerate(headers))
         lines.append(header_line)
-        lines.append("-" * 100)
+        lines.append("-" * max(sum(COL_TARGET_PX) // SPACE_PX, 80))
 
         for p in person_list:
             vals = [p[h] for h in headers]
@@ -2041,111 +2056,43 @@ class ToolboxApp(tk.Tk):
             self._log_result_banner(False)
 
     def _person_copy(self):
-        """复制表格到剪贴板（CF_HTML格式，Excel可正确识别）"""
+        """复制表格到剪贴板（TSV格式，直接粘贴进Excel单元格）"""
         if not hasattr(self, '_person_data') or not self._person_data:
             self._notify("没有可复制的内容")
             return
 
         headers = ["姓名", "性别", "年龄", "出生日期", "身份证号", "手机号", "银行卡号"]
-        text_cols = {"身份证号", "手机号", "银行卡号"}
 
-        # 构造Excel友好的HTML（含Office XML命名空间，确保mso-number-format生效）
-        rows_html = []
-        rows_html.append('<tr>' + ''.join(f'<th>{h}</th>' for h in headers) + '</tr>')
+        # 构造TSV（制表符分隔，Excel直接粘贴进单元格）
+        lines = ['\t'.join(headers)]
         for p in self._person_data:
-            cells = []
-            for h in headers:
-                val = str(p[h])
-                if h in text_cols:
-                    # mso-number-format 强制文本，Excel会将@识别为文本格式
-                    cells.append(f'<td style="mso-number-format:\'\\@\'">{val}</td>')
-                else:
-                    cells.append(f'<td>{val}</td>')
-            rows_html.append('<tr>' + ''.join(cells) + '</tr>')
+            lines.append('\t'.join(str(p[h]) for h in headers))
+        tsv = '\n'.join(lines)
 
-        fragment = ''.join(rows_html)
+        # 构造纯文本（供其他应用粘贴）
+        text = tsv
 
-        # CF_HTML 标准格式头部
-        pre = ('Version:0.9\r\n'
-               'StartHTML:0000000000\r\n'
-               'EndHTML:0000000000\r\n'
-               'StartFragment:0000000000\r\n'
-               'EndFragment:0000000000\r\n'
-               '<html xmlns:o="urn:schemas-microsoft-com:office:office" '
-               'xmlns:x="urn:schemas-microsoft-com:office:excel" '
-               'xmlns="http://www.w3.org/TR/REC-html40">\r\n'
-               '<head><meta charset="utf-8">\r\n'
-               '<!--[if gte mso 9]><xml><x:ExcelWorkbook>'
-               '<x:ExcelWorksheets><x:ExcelWorksheet>'
-               '<x:Name>Sheet1</x:Name>'
-               '<x:WorksheetOptions><x:DisplayGridlines/>'
-               '</x:WorksheetOptions></x:ExcelWorksheet>'
-               '</x:ExcelWorksheets></x:ExcelWorkbook></xml>'
-               '<![endif]--></head>\r\n'
-               '<body>\r\n<!--StartFragment-->\r\n')
-        post = '\r\n<!--EndFragment-->\r\n</body></html>'
-
-        body = pre + fragment + post
-
-        # 回填偏移量
-        start_html = 0
-        end_html = len(body.encode('utf-8'))
-        start_frag = len(pre.encode('utf-8'))
-        end_frag = start_frag + len(fragment.encode('utf-8'))
-
-        body = (f'Version:0.9\r\n'
-                f'StartHTML:{start_html:010d}\r\n'
-                f'EndHTML:{end_html:010d}\r\n'
-                f'StartFragment:{start_frag:010d}\r\n'
-                f'EndFragment:{end_frag:010d}\r\n'
-                '<html xmlns:o="urn:schemas-microsoft-com:office:office" '
-                'xmlns:x="urn:schemas-microsoft-com:office:excel" '
-                'xmlns="http://www.w3.org/TR/REC-html40">\r\n'
-                '<head><meta charset="utf-8">\r\n'
-                '<!--[if gte mso 9]><xml><x:ExcelWorkbook>'
-                '<x:ExcelWorksheets><x:ExcelWorksheet>'
-                '<x:Name>Sheet1</x:Name>'
-                '<x:WorksheetOptions><x:DisplayGridlines/>'
-                '</x:WorksheetOptions></x:ExcelWorksheet>'
-                '</x:ExcelWorksheets></x:ExcelWorkbook></xml>'
-                '<![endif]--></head>\r\n'
-                '<body>\r\n<!--StartFragment-->\r\n'
-                f'{fragment}\r\n'
-                '<!--EndFragment-->\r\n</body></html>')
-
-        # 纯文本 TSV
-        tsv = table_data_to_tsv([headers] + [[p[h] for h in headers] for p in self._person_data])
-
-        # 使用 Windows API 写剪贴板
+        # 写剪贴板：CF_UNICODETEXT
         import ctypes
 
         user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32
 
-        CF_HTML = user32.RegisterClipboardFormatW('HTML Format')
         CF_UNICODETEXT = 13
 
-        body_utf8 = body.encode('utf-8')
-        body_wide = tsv.encode('utf-16-le') + b'\x00\x00'
-
-        h_html = kernel32.GlobalAlloc(0x0042, len(body_utf8) + 1)
-        h_text = kernel32.GlobalAlloc(0x0042, len(body_wide))
-
-        p_html = kernel32.GlobalLock(h_html)
-        ctypes.memmove(p_html, body_utf8, len(body_utf8))
-        kernel32.GlobalUnlock(h_html)
+        text_wide = tsv.encode('utf-16-le') + b'\x00\x00'
+        h_text = kernel32.GlobalAlloc(0x0042, len(text_wide))
 
         p_text = kernel32.GlobalLock(h_text)
-        ctypes.memmove(p_text, body_wide, len(body_wide))
+        ctypes.memmove(p_text, text_wide, len(text_wide))
         kernel32.GlobalUnlock(h_text)
 
         user32.OpenClipboard(0)
         user32.EmptyClipboard()
-        user32.SetClipboardData(CF_HTML, h_html)
         user32.SetClipboardData(CF_UNICODETEXT, h_text)
         user32.CloseClipboard()
 
-        self._notify("已复制到剪贴板（Excel格式），可直接粘贴")
+        self._notify("已复制到剪贴板（TSV格式），可直接粘贴到Excel")
 
     def _person_export_excel(self):
         """导出为Excel文件"""
