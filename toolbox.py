@@ -2048,91 +2048,67 @@ class ToolboxApp(tk.Tk):
             self._log_result_banner(False)
 
     def _person_copy(self):
-        """复制表格到剪贴板（CF_HTML + CF_UNICODETEXT，Excel粘贴后身份证号等为文本格式）"""
+        """复制表格：剪贴板放TSV + 自动打开xlsx（格式正确）"""
         if not hasattr(self, '_person_data') or not self._person_data:
             self._notify("没有可复制的内容")
             return
 
         headers = ["姓名", "性别", "年龄", "出生日期", "身份证号", "手机号", "银行卡号"]
-        text_cols = {"身份证号", "手机号", "银行卡号"}
 
-        # ---- 构造HTML表格（mso-number-format:\@ 强制Excel文本格式）----
-        import html as _html
-        rows = []
-        rows.append('<tr>' + ''.join(f'<th>{h}</th>' for h in headers) + '</tr>')
-        for p in self._person_data:
-            cells = []
-            for h in headers:
-                val = _html.escape(str(p[h]))
-                if h in text_cols:
-                    cells.append(f'<td style="mso-number-format:\'\\@\'">{val}</td>')
-                else:
-                    cells.append(f'<td>{val}</td>')
-            rows.append('<tr>' + ''.join(cells) + '</tr>')
-
-        fragment = '\n'.join(rows)
-
-        # 完整HTML文档
-        html_doc = (f'<html>\r\n'
-                    f'<body>\r\n'
-                    f'<!--StartFragment-->\r\n'
-                    f'{fragment}\r\n'
-                    f'<!--EndFragment-->\r\n'
-                    f'</body>\r\n'
-                    f'</html>')
-
-        # CF_HTML要求的头部（字节偏移量必须精确）
-        # 头部固定102字节：Version(14)+StartHTML(22)+EndHTML(20)+StartFragment(24)+EndFragment(22)
-        hdr_tpl = ('Version:0.9\r\n'
-                   'StartHTML:{:010d}\r\n'
-                   'EndHTML:{:010d}\r\n'
-                   'StartFragment:{:010d}\r\n'
-                   'EndFragment:{:010d}\r\n')
-        hdr_len = len(hdr_tpl.format(0, 0, 0, 0).encode('ascii'))
-
-        html_body = html_doc.encode('utf-8')
-        frag_start = hdr_len + html_body.find(b'<!--StartFragment-->') + len(b'<!--StartFragment-->')
-        frag_end = hdr_len + html_body.find(b'<!--EndFragment-->')
-
-        hdr_bytes = hdr_tpl.format(hdr_len, hdr_len + len(html_body),
-                                   frag_start, frag_end).encode('ascii')
-        cf_html_data = hdr_bytes + html_body
-
-        # ---- 构造TSV（纯文本备用）----
+        # ---- 1. 剪贴板放TSV（通用粘贴）----
         tsv_lines = ['\t'.join(headers)]
         for p in self._person_data:
             tsv_lines.append('\t'.join(str(p[h]) for h in headers))
         tsv = '\n'.join(tsv_lines)
+        self.clipboard_clear()
+        self.clipboard_append(tsv)
 
-        # ---- Windows API写剪贴板 ----
-        import ctypes
-        user32 = ctypes.windll.user32
-        kernel32 = ctypes.windll.kernel32
+        # ---- 2. 生成临时xlsx并打开（格式完美）----
+        try:
+            import openpyxl
+            from openpyxl.styles import Font, Alignment, numbers
+            import tempfile
+            import subprocess
 
-        CF_HTML = user32.RegisterClipboardFormatW('HTML Format')
-        CF_UNICODETEXT = 13
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "人员信息"
 
-        html_wide = cf_html_data
-        text_wide = tsv.encode('utf-16-le') + b'\x00\x00'
+            # 表头加粗
+            header_font = Font(bold=True)
+            for ci, h in enumerate(headers, 1):
+                cell = ws.cell(row=1, column=ci, value=h)
+                cell.font = header_font
 
-        h_html = kernel32.GlobalAlloc(0x0042, len(html_wide))
-        h_text = kernel32.GlobalAlloc(0x0042, len(text_wide))
+            # 身份证号、手机号、银行卡号列（从1开始）
+            text_col_indices = {5, 6, 7}
 
-        p = kernel32.GlobalLock(h_html)
-        ctypes.memmove(p, html_wide, len(html_wide))
-        kernel32.GlobalUnlock(h_html)
+            for ri, p in enumerate(self._person_data, 2):
+                for ci, h in enumerate(headers, 1):
+                    val = str(p[h])
+                    cell = ws.cell(row=ri, column=ci)
+                    if ci in text_col_indices:
+                        cell.number_format = '@'
+                        cell.value = val
+                    else:
+                        cell.value = val
 
-        p = kernel32.GlobalLock(h_text)
-        ctypes.memmove(p, text_wide, len(text_wide))
-        kernel32.GlobalUnlock(h_text)
+            # 自动列宽
+            for ci, h in enumerate(headers, 1):
+                max_len = len(h) * 2
+                for ri in range(2, len(self._person_data) + 2):
+                    v = str(ws.cell(row=ri, column=ci).value or '')
+                    w = len(v) * 2 if any('\u4e00' <= c <= '\u9fff' for c in v) else len(v)
+                    max_len = max(max_len, w)
+                ws.column_dimensions[openpyxl.utils.get_column_letter(ci)].width = min(max_len + 4, 30)
 
-        user32.OpenClipboard(0)
-        user32.EmptyClipboard()
-        user32.SetClipboardData(CF_HTML, h_html)
-        user32.SetClipboardData(CF_UNICODETEXT, h_text)
-        user32.CloseClipboard()
+            tmp = os.path.join(tempfile.gettempdir(), '人员信息.xlsx')
+            wb.save(tmp)
+            subprocess.Popen(['cmd', '/c', 'start', '', tmp], shell=False)
 
-        self._notify("已复制到剪贴板（Excel格式），可直接粘贴到Excel")
+            self._notify("已复制到剪贴板 + 已打开Excel文件")
+        except Exception as e:
+            self._notify(f"已复制到剪贴板（打开Excel失败: {e}）")
 
     def _person_export_excel(self):
         """导出为Excel文件"""
