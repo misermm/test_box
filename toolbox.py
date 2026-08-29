@@ -2032,23 +2032,32 @@ class ToolboxApp(tk.Tk):
             return
 
         headers = ["姓名", "性别", "年龄", "出生日期", "身份证号", "手机号", "银行卡号"]
+        text_cols = {"身份证号", "手机号", "银行卡号"}
 
-        # 生成HTML表格，身份证号、手机号、银行卡号使用文本格式
+        # 生成HTML表格
         html_parts = ['<html><body><table>']
-        # 表头
         html_parts.append('<tr>' + ''.join(f'<th>{h}</th>' for h in headers) + '</tr>')
-        # 数据行
         for p in self._person_data:
             html_parts.append('<tr>')
             for h in headers:
                 val = str(p[h])
-                if h in ("身份证号", "手机号", "银行卡号"):
-                    # 使用mso-number-format强制文本格式
-                    html_parts.append(f'<td style="mso-number-format:\\@">{val}</td>')
-                else:
-                    html_parts.append(f'<td>{val}</td>')
+                if h in text_cols:
+                    # 在数字前加零宽空格，防止Excel将其识别为数值
+                    val = '\u200B' + val
+                html_parts.append(f'<td>{val}</td>')
             html_parts.append('</tr>')
         html_parts.append('</table></body></html>')
+
+        html_content = ''.join(html_parts)
+
+        # 同时复制TSV格式（用于纯文本粘贴）
+        tsv = table_data_to_tsv([headers] + [[p[h] for h in headers] for p in self._person_data])
+
+        # HTML格式优先，确保Excel粘贴时使用HTML
+        self.clipboard_clear()
+        self.clipboard_append(html_content, type='HTML')
+        self.clipboard_append(tsv)
+        self._notify("已复制到剪贴板（Excel格式），可直接粘贴")
 
         html_content = ''.join(html_parts)
 
