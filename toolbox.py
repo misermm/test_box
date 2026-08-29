@@ -12,7 +12,8 @@ import json
 # 必须在 import paddlex 之前设置：
 # 1. 模型缓存目录按优先级选择：
 #    a) <存储位置>\models —— 启动时自动检查更新下载的模型（优先）
-#       存储位置默认 %LOCALAPPDATA%\TestToolbox，可在界面更改（含迁移）
+#       存储位置默认 exe 所在目录，可在界面更改（含迁移）；旧版默认
+#       %LOCALAPPDATA%\TestToolbox 的数据首次启动时自动迁移
 #    b) 内置模型 —— 源码运行=项目 models/，exe 运行=打包进 exe 的 models/（--add-data）
 #    模型已预下载，运行时直接使用本地缓存，不联网
 # 2. 模型源固定为 BOS（百度 CDN，国内可达），仅在缓存缺模型时才会联网下载兜底
@@ -23,14 +24,17 @@ if getattr(sys, 'frozen', False):
 else:
     _APP_DIR = os.path.dirname(os.path.abspath(__file__))
     _BUILTIN_MODELS_DIR = os.path.join(_APP_DIR, "models")
-# 存储根目录：模型/日志等文件的存放位置（默认 C 盘 %LOCALAPPDATA%\TestToolbox，
-# 用户可在界面"文件存储位置"中更改，配置持久化在程序同级 .storage_dir，
-# 更改后自动迁移已有文件并立即生效，避免占用 C 盘）
+# 存储根目录：模型/日志/配置文件的存放位置（默认 exe 所在目录，便携式、
+# 文件跟程序走；用户可在界面"文件存储位置"中更改，配置持久化在程序同级
+# .storage_dir，更改后自动迁移已有文件并立即生效）
 _STORAGE_CONFIG_FILE = os.path.join(_APP_DIR, ".storage_dir")
+# 旧版本的默认存储位置：首次启动新版本时把其中的数据一次性迁移到
+# 当前存储位置（仅 exe 运行且用户未自定义存储位置时）
+_LEGACY_STORAGE_DIR = os.path.join(os.environ.get('LOCALAPPDATA', _APP_DIR), "TestToolbox")
 
 
 def _default_storage_dir():
-    return os.path.join(os.environ.get('LOCALAPPDATA', _APP_DIR), "TestToolbox")
+    return _APP_DIR
 
 
 def _load_storage_dir():
@@ -55,26 +59,32 @@ def _config_path(name):
 
 
 def _read_config(name):
-    """读取配置文件；兼容旧版（exe 同级）：读到旧文件则迁移到存储位置并删除旧文件"""
+    """读取配置文件；兼容旧位置（exe 同级 / 旧默认存储位置）：
+    读到旧文件则迁移到当前存储位置并删除旧文件"""
     new_p = _config_path(name)
     old_p = os.path.join(_APP_DIR, name)
+    legacy_p = os.path.join(_LEGACY_STORAGE_DIR, name)
     try:
         with open(new_p, encoding="utf-8") as f:
             return f.read().strip()
     except Exception:
         pass
-    try:
-        with open(old_p, encoding="utf-8") as f:
-            content = f.read().strip()
-        if content:
-            # 迁移到新位置后删除旧文件，保持 exe 目录干净
-            os.makedirs(_STORAGE_DIR, exist_ok=True)
-            with open(new_p, "w", encoding="utf-8") as f:
-                f.write(content)
-        os.remove(old_p)
-        return content
-    except Exception:
-        pass
+    for src_p in (old_p, legacy_p):
+        # legacy 位置仅在用户未自定义存储位置时迁移，避免动用户自定义后的数据
+        if src_p is legacy_p and os.path.exists(_STORAGE_CONFIG_FILE):
+            continue
+        try:
+            with open(src_p, encoding="utf-8") as f:
+                content = f.read().strip()
+            if content:
+                # 迁移到新位置后删除旧文件，保持旧位置干净
+                os.makedirs(_STORAGE_DIR, exist_ok=True)
+                with open(new_p, "w", encoding="utf-8") as f:
+                    f.write(content)
+            os.remove(src_p)
+            return content
+        except Exception:
+            pass
     return None
 
 
@@ -402,6 +412,49 @@ def _setup_update_file_log():
         pass
 
 
+def _migrate_legacy_storage(log=None):
+    """一次性把旧默认存储位置（%LOCALAPPDATA%\TestToolbox）的数据迁移到
+    当前存储位置。仅当 exe 运行、用户未自定义存储位置且旧目录存在时执行；
+    模型目录合并复制（保留已下载的可选模型），配置/日志移动，完成后删除
+    旧目录释放 C 盘。失败仅记日志，下次启动重试。"""
+    def _log(text):
+        logging.info(f"[legacy迁移] {text}")
+        if log:
+            try:
+                log(text)
+            except Exception:
+                pass
+
+    try:
+        # dev 运行不迁移：旧数据是 exe 用户产生的，不应混入项目目录
+        if not getattr(sys, 'frozen', False):
+            return
+        # 用户已自定义存储位置：说明已主动迁移过，不动旧目录
+        if os.path.exists(_STORAGE_CONFIG_FILE):
+            return
+        if not os.path.isdir(_LEGACY_STORAGE_DIR):
+            return
+        if os.path.normcase(_LEGACY_STORAGE_DIR) == os.path.normcase(_STORAGE_DIR):
+            return
+        import shutil
+        _log(f"检测到旧版本数据({_LEGACY_STORAGE_DIR})，正在迁移到 {_STORAGE_DIR}...")
+        # 模型目录：合并复制（可能数百 MB，含已下载的可选模型）
+        legacy_models = os.path.join(_LEGACY_STORAGE_DIR, "models")
+        if os.path.isdir(legacy_models):
+            shutil.copytree(legacy_models, _external_models_dir(), dirs_exist_ok=True)
+        for fname in (".ocr_model", ".ocr_hotkey", "update.log", "crash.log"):
+            src = os.path.join(_LEGACY_STORAGE_DIR, fname)
+            if os.path.isfile(src):
+                try:
+                    shutil.move(src, os.path.join(_STORAGE_DIR, fname))
+                except Exception:
+                    pass
+        shutil.rmtree(_LEGACY_STORAGE_DIR, ignore_errors=True)
+        _log(f"旧版本数据已迁移到 {_STORAGE_DIR}，旧目录已清理")
+    except Exception as e:
+        logging.error(f"[legacy迁移] 失败: {e}\n{traceback.format_exc()}")
+
+
 def _check_model_updates_worker(app):
     """后台线程：检查模型更新，有新版本则下载到外部目录（下次启动生效）"""
     import shutil
@@ -418,6 +471,9 @@ def _check_model_updates_worker(app):
             pass
 
     time.sleep(3)  # 等待 GUI 主循环就绪，使 after 通知可用
+
+    # 一次性迁移旧默认存储位置（%LOCALAPPDATA%\TestToolbox）的数据到当前存储位置
+    _migrate_legacy_storage(notify)
 
     # 清理外部目录中旧版本遗留的已弃用模型（如 doc_ori/UVDoc/DocLayout），释放磁盘。
     # 注意用 _ALL_KNOWN_MODELS 判断：用户按需下载的可选 OCR 模型（server 等）允许保留
@@ -2057,7 +2113,7 @@ class ToolboxApp(tk.Tk):
             command=self._change_storage_dir)
         self._storage_btn.pack(side="left", padx=4)
         self._storage_hint_label = tk.Label(
-            self.content, text="（模型、日志等文件将保存到该位置；更改后自动迁移已有文件并立即生效）",
+            self.content, text="（模型、日志、配置等文件将保存到该位置，默认为程序所在目录；更改后自动迁移已有文件并立即生效）",
             bg="#f5f6fa", fg="#7f8c8d", font=("Microsoft YaHei UI", 9))
         self._storage_hint_label.pack(anchor="w", pady=(0, 8))
 
