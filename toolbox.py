@@ -2054,6 +2054,7 @@ class ToolboxApp(tk.Tk):
             return
 
         headers = ["姓名", "性别", "年龄", "出生日期", "身份证号", "手机号", "银行卡号"]
+        tmp = None
 
         try:
             import openpyxl
@@ -2093,18 +2094,28 @@ class ToolboxApp(tk.Tk):
 
             self._notify("已复制到剪贴板（Excel格式）")
         except Exception:
+            # TSV降级：身份证号/手机号/银行卡号前加单引号，
+            # 防止Excel将这些长数字识别为数值并转换为科学计数法
+            text_col_indices = {4, 5, 6}
             tsv_lines = ['\t'.join(headers)]
             for p in self._person_data:
-                tsv_lines.append('\t'.join(str(p[h]) for h in headers))
+                vals = []
+                for i, h in enumerate(headers):
+                    v = str(p[h])
+                    if i in text_col_indices:
+                        v = "'" + v
+                    vals.append(v)
+                tsv_lines.append('\t'.join(vals))
             tsv = '\n'.join(tsv_lines)
             self.clipboard_clear()
             self.clipboard_append(tsv)
             self._notify("已复制到剪贴板（TSV格式）")
         finally:
-            try:
-                os.remove(tmp)
-            except Exception:
-                pass
+            if tmp:
+                try:
+                    os.remove(tmp)
+                except Exception:
+                    pass
 
     def _person_export_excel(self):
         """导出为Excel文件"""
