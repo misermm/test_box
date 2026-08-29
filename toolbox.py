@@ -2069,7 +2069,7 @@ class ToolboxApp(tk.Tk):
 
         try:
             import openpyxl
-            from openpyxl.styles import numbers
+            from openpyxl.styles import Font
         except ImportError:
             return self._person_export_csv()
 
@@ -2089,25 +2089,26 @@ class ToolboxApp(tk.Tk):
             ws.title = "人员信息"
 
             headers = ["姓名", "性别", "年龄", "出生日期", "身份证号", "手机号", "银行卡号"]
-            
-            # 先设置文本格式的列索引（从0开始）
-            text_col_indices = [4, 5, 6]  # 身份证号、手机号、银行卡号
-            
+
+            # 身份证号、手机号、银行卡号列索（从1开始）
+            text_col_indices = [5, 6, 7]
+
             # 写入表头
             for col_idx, h in enumerate(headers):
                 cell = ws.cell(row=1, column=col_idx + 1)
                 cell.value = h
                 cell.font = Font(bold=True)
-            
+
             # 写入数据
             for row_offset, p in enumerate(self._person_data):
                 row_num = row_offset + 2
                 for col_idx, h in enumerate(headers):
                     cell = ws.cell(row=row_num, column=col_idx + 1)
-                    if col_idx in text_col_indices:
-                        # 先设置格式，再写入值
+                    if col_idx + 1 in text_col_indices:
+                        # 先设格式，再赋值，强制为文本类型
                         cell.number_format = '@'
                         cell.value = str(p[h])
+                        cell._data_type = 's'  # 强制字符串类型
                     else:
                         cell.value = p[h]
 
@@ -2118,7 +2119,6 @@ class ToolboxApp(tk.Tk):
                 for cell in col:
                     try:
                         cell_len = len(str(cell.value))
-                        # 中文字符宽度约为英文的2倍
                         chinese_chars = sum(1 for c in str(cell.value) if '\u4e00' <= c <= '\u9fff')
                         cell_len += chinese_chars
                         if cell_len > max_length:
@@ -2126,11 +2126,6 @@ class ToolboxApp(tk.Tk):
                     except:
                         pass
                 ws.column_dimensions[col_letter].width = min(max_length + 2, 30)
-
-            # 设置第一行（表头）为粗体
-            from openpyxl.styles import Font
-            for cell in ws[1]:
-                cell.font = Font(bold=True)
 
             wb.save(f)
             self._log(f"已导出Excel: {f}\n")
