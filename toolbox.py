@@ -2002,41 +2002,33 @@ class ToolboxApp(tk.Tk):
         # 保存结构化数据用于复制和导出
         self._person_data = person_list
 
-        # 生成显示文本（像素级精确对齐）
-        # Consolas 10号字体: 空格/ASCII=7px, 中文=13px
-        # 每列宽度 = 该列最长内容的像素宽度 + 2个空格边距
-        # 计算实际数据最大宽度
-        SPACE_PX = 7
-        HEADER_CHARS = [2, 2, 2, 10, 18, 11, 19]  # 表头字符数(中文按2)
+        # 生成显示文本（用Font.measure像素级精确对齐）
+        import tkinter.font as tkfont
+        _font = tkfont.Font(family="Consolas", size=10)
 
         def str_pixel_w(s):
-            s = str(s)
-            w = len(s) * SPACE_PX
-            for ch in s:
-                if '\u4e00' <= ch <= '\u9fff' or '\u3000' <= ch <= '\u303f' or '\uff00' <= ch <= '\uffef':
-                    w += SPACE_PX
-            return w
+            return _font.measure(str(s))
 
         def pad_px(s, target_px):
             s = str(s)
-            w = str_pixel_w(s)
-            gap = target_px - w
+            gap = target_px - str_pixel_w(s)
             if gap <= 0:
                 return s
-            return s + ' ' * ((gap + SPACE_PX - 1) // SPACE_PX)
+            space_px = _font.measure(' ')
+            return s + ' ' * ((gap + space_px - 1) // space_px)
 
-        # 计算每列目标像素(表头字符数*SPACE_PX + 数据最大宽度,取两者最大值)
-        data_col_max = [0] * len(headers)
+        # 每列目标宽度 = max(表头宽度, 数据最大宽度) + 2格空格
+        space_px = _font.measure(' ')
+        col_max = [_font.measure(h) for h in headers]
         for p in person_list:
             for i, h in enumerate(headers):
-                data_col_max[i] = max(data_col_max[i], str_pixel_w(p[h]))
-        COL_TARGET_PX = [max(HEADER_CHARS[i] * SPACE_PX, data_col_max[i] + SPACE_PX * 2)
-                         for i in range(len(headers))]
+                col_max[i] = max(col_max[i], str_pixel_w(p[h]))
+        COL_TARGET_PX = [w + space_px * 2 for w in col_max]
 
         lines = []
         header_line = ' '.join(pad_px(h, COL_TARGET_PX[i]) for i, h in enumerate(headers))
         lines.append(header_line)
-        lines.append("-" * max(sum(COL_TARGET_PX) // SPACE_PX, 80))
+        lines.append("-" * max(sum(COL_TARGET_PX) // space_px, 80))
 
         for p in person_list:
             vals = [p[h] for h in headers]
@@ -2069,29 +2061,9 @@ class ToolboxApp(tk.Tk):
             lines.append('\t'.join(str(p[h]) for h in headers))
         tsv = '\n'.join(lines)
 
-        # 构造纯文本（供其他应用粘贴）
-        text = tsv
-
-        # 写剪贴板：CF_UNICODETEXT
-        import ctypes
-
-        user32 = ctypes.windll.user32
-        kernel32 = ctypes.windll.kernel32
-
-        CF_UNICODETEXT = 13
-
-        text_wide = tsv.encode('utf-16-le') + b'\x00\x00'
-        h_text = kernel32.GlobalAlloc(0x0042, len(text_wide))
-
-        p_text = kernel32.GlobalLock(h_text)
-        ctypes.memmove(p_text, text_wide, len(text_wide))
-        kernel32.GlobalUnlock(h_text)
-
-        user32.OpenClipboard(0)
-        user32.EmptyClipboard()
-        user32.SetClipboardData(CF_UNICODETEXT, h_text)
-        user32.CloseClipboard()
-
+        # 使用tkinter剪贴板（CF_UNICODETEXT格式，Excel可正确识别为文本）
+        self.clipboard_clear()
+        self.clipboard_append(tsv)
         self._notify("已复制到剪贴板（TSV格式），可直接粘贴到Excel")
 
     def _person_export_excel(self):
