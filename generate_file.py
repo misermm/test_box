@@ -10,24 +10,91 @@ import zipfile
 import argparse
 
 
-def corrupt_file(output_path):
+CORRUPT_METHODS = {
+    "header_tail": "覆盖头部和尾部",
+    "header_only": "仅覆盖头部",
+    "tail_only": "仅覆盖尾部",
+    "random_positions": "随机位置覆盖",
+    "full_random": "全部随机覆盖",
+    "truncate": "截断文件",
+    "zero_fill": "全部清零",
+}
+
+
+def corrupt_file(output_path, method="header_tail"):
     """
-    损坏文件：用随机数据覆盖文件头部和尾部（保留原大小），
-    破坏文件签名、结构和结束标记，使其无法正常打开
+    损坏文件：按照指定方式损坏文件
+
+    参数:
+        output_path: 文件路径
+        method: 损坏方式
+            - header_tail: 覆盖头部和尾部（默认）
+            - header_only: 仅覆盖头部
+            - tail_only: 仅覆盖尾部
+            - random_positions: 随机位置覆盖
+            - full_random: 全部随机覆盖
+            - truncate: 截断文件
+            - zero_fill: 全部清零
     """
-    print("正在损坏文件...")
+    print(f"正在损坏文件（方式：{CORRUPT_METHODS.get(method, method)}）...")
     total = os.path.getsize(output_path)
     if total <= 0:
         return
+
     region = min(4096, total // 2)
+
     with open(output_path, 'r+b') as f:
-        f.write(os.urandom(region))
-        f.seek(total - region)
-        f.write(os.urandom(region))
-    print(f"已覆盖头部和尾部各 {region} 字节")
+        if method == "header_tail":
+            f.write(os.urandom(region))
+            f.seek(total - region)
+            f.write(os.urandom(region))
+            print(f"已覆盖头部和尾部各 {region} 字节")
+
+        elif method == "header_only":
+            f.write(os.urandom(region))
+            print(f"已覆盖头部 {region} 字节")
+
+        elif method == "tail_only":
+            f.seek(total - region)
+            f.write(os.urandom(region))
+            print(f"已覆盖尾部 {region} 字节")
+
+        elif method == "random_positions":
+            num_positions = min(10, total // 1024)
+            positions = sorted([int.from_bytes(os.urandom(4), 'big') % total for _ in range(num_positions)])
+            for pos in positions:
+                chunk_size = min(256, total - pos)
+                f.seek(pos)
+                f.write(os.urandom(chunk_size))
+            print(f"已覆盖 {num_positions} 个随机位置")
+
+        elif method == "full_random":
+            f.seek(0)
+            chunk_size = 1024 * 1024
+            written = 0
+            while written < total:
+                data = os.urandom(min(chunk_size, total - written))
+                f.write(data)
+                written += len(data)
+            print(f"已将全部 {total} 字节替换为随机数据")
+
+        elif method == "truncate":
+            keep_size = max(1, total // 2)
+            f.truncate(keep_size)
+            print(f"已截断文件，保留 {keep_size} 字节")
+
+        elif method == "zero_fill":
+            f.seek(0)
+            chunk_size = 1024 * 1024
+            written = 0
+            while written < total:
+                data = b'\x00' * min(chunk_size, total - written)
+                f.write(data)
+                written += len(data)
+            print(f"已将全部 {total} 字节清零")
 
 
-def create_file(output_path, size_mb, file_type="zip", corrupted=False):
+def create_file(output_path, size_mb, file_type="zip", corrupted=False, corrupt_method="header_tail"):
     """
     创建指定大小的文件
 
@@ -36,12 +103,16 @@ def create_file(output_path, size_mb, file_type="zip", corrupted=False):
         size_mb: 文件大小（MB）
         file_type: 文件类型 (zip, plain, pdf, docx, xlsx)
         corrupted: 是否生成损坏的文件
+        corrupt_method: 损坏方式 (header_tail, header_only, tail_only, random_positions, full_random, truncate, zero_fill)
     """
     size_bytes = int(size_mb * 1024 * 1024)
     
     print(f"目标大小: {size_mb} MB ({size_bytes} bytes)")
     print(f"文件类型: {file_type}")
-    print(f"是否损坏: {'是' if corrupted else '否'}")
+    if corrupted:
+        print(f"是否损坏: 是（{CORRUPT_METHODS.get(corrupt_method, corrupt_method)}）")
+    else:
+        print(f"是否损坏: 否")
     print(f"输出路径: {output_path}")
     print()
     
@@ -60,7 +131,7 @@ def create_file(output_path, size_mb, file_type="zip", corrupted=False):
         create_plain_file(output_path, size_bytes)
 
     if corrupted:
-        corrupt_file(output_path)
+        corrupt_file(output_path, corrupt_method)
 
     # 验证文件大小
     actual_size = os.path.getsize(output_path)
@@ -395,7 +466,14 @@ def main():
     parser.add_argument(
         '-c', '--corrupted',
         action='store_true',
-        help='生成损坏的文件（破坏文件头，保留原大小）'
+        help='生成损坏的文件'
+    )
+
+    parser.add_argument(
+        '-m', '--corrupt-method',
+        choices=list(CORRUPT_METHODS.keys()),
+        default='header_tail',
+        help='损坏方式: ' + ', '.join(f'{k}({v})' for k, v in CORRUPT_METHODS.items()) + ' (默认: header_tail)'
     )
     
     args = parser.parse_args()
@@ -404,7 +482,7 @@ def main():
         print("错误: 文件大小必须大于0")
         sys.exit(1)
 
-    create_file(args.output, args.size, args.type, corrupted=args.corrupted)
+    create_file(args.output, args.size, args.type, corrupted=args.corrupted, corrupt_method=args.corrupt_method)
 
 
 if __name__ == '__main__':

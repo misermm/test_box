@@ -264,7 +264,7 @@ logging.basicConfig(
 
 from image_to_pdf import merge_images_to_pdf, convert_images_to_zip
 from file_splitter import split_to_zip, merge_zip_files
-from generate_file import create_file
+from generate_file import create_file, CORRUPT_METHODS
 from generate_text import generate_text, TEXT_TYPES
 from generate_person import generate_person, generate_id_card, generate_name, generate_phone
 from url_codec import url_encode, url_decode
@@ -1194,6 +1194,7 @@ class ToolboxApp(tk.Tk):
         self._gen_size_var = tk.StringVar(value="101")
         self._gen_type_var = tk.StringVar(value="zip")
         self._gen_corrupt_var = tk.StringVar(value="正常")
+        self._gen_corrupt_method_var = tk.StringVar(value="header_tail")
         self._gen_out_var = tk.StringVar(value=DEFAULT_DATA)
         self._text_len_var = tk.StringVar(value="100")
         self._text_type_var = tk.StringVar(value="汉字+英文+中英文标点")
@@ -1797,8 +1798,18 @@ class ToolboxApp(tk.Tk):
 
         r4 = self._row(self.content)
         self._label(r4, "文件状态:").pack(side="left")
-        ttk.Combobox(r4, textvariable=self._gen_corrupt_var, state="readonly",
-                     values=["正常", "损坏"], width=10).pack(side="left", padx=8)
+        self._gen_corrupt_combo = ttk.Combobox(r4, textvariable=self._gen_corrupt_var, state="readonly",
+                     values=["正常", "损坏"], width=10)
+        self._gen_corrupt_combo.pack(side="left", padx=8)
+        self._gen_corrupt_combo.bind("<<ComboboxSelected>>", self._on_corrupt_changed)
+
+        self._gen_corrupt_method_label = self._label(r4, "损坏方式:")
+        corrupt_method_values = list(CORRUPT_METHODS.keys())
+        self._gen_corrupt_method_combo = ttk.Combobox(r4, textvariable=self._gen_corrupt_method_var, state="readonly",
+                     values=corrupt_method_values, width=15)
+        self._gen_corrupt_method_label.pack(side="left")
+        self._gen_corrupt_method_combo.pack(side="left", padx=8)
+        self._on_corrupt_changed()
 
         r3 = self._row(self.content)
         self._label(r3, "输出路径:").pack(side="left")
@@ -1809,6 +1820,14 @@ class ToolboxApp(tk.Tk):
         tk.Button(btn_row, text="开始生成", command=self._gen_run,
                   bg="#1abc9c", fg="white",
                   font=("Microsoft YaHei UI", 11, "bold"), width=18).pack(pady=(6, 0))
+
+    def _on_corrupt_changed(self, event=None):
+        if self._gen_corrupt_var.get() == "损坏":
+            self._gen_corrupt_method_label.pack(side="left", before=self._gen_corrupt_method_combo)
+            self._gen_corrupt_method_combo.pack(side="left", padx=8)
+        else:
+            self._gen_corrupt_method_combo.pack_forget()
+            self._gen_corrupt_method_label.pack_forget()
 
     def _gen_choose_out(self):
         d = filedialog.askdirectory(title="选择输出路径", initialdir=self._gen_out_var.get())
@@ -1833,9 +1852,10 @@ class ToolboxApp(tk.Tk):
             return
         os.makedirs(out_dir, exist_ok=True)
         corrupted = self._gen_corrupt_var.get() == "损坏"
+        corrupt_method = self._gen_corrupt_method_var.get() if corrupted else "header_tail"
         suffix = "_corrupted" if corrupted else ""
         out_file = os.path.join(out_dir, f"file_{size:g}{suffix}.{ext}")
-        self._start_task(create_file, out_file, size, ftype, corrupted,
+        self._start_task(create_file, out_file, size, ftype, corrupted, corrupt_method,
                          on_done=self._on_done_success)
 
     # =============== 页面6: 生成指定长度文本 ===============
