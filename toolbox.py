@@ -1135,7 +1135,7 @@ class ToolboxApp(tk.Tk):
         self._task_page = None
 
         # 持久化变量（切换页面时保留值）
-        DEFAULT_DATA = r"C:\work\ai\picture_to_pdf\data"
+        DEFAULT_DATA = os.path.join(_APP_DIR, "data")
         self._pdf_images = []
         self._pdf_out_var = tk.StringVar(value=DEFAULT_DATA)
         self._zip_images = []
@@ -1961,17 +1961,39 @@ class ToolboxApp(tk.Tk):
             self._log_result_banner(False)
 
     def _person_copy(self):
-        """复制表格到剪贴板（TSV格式，可直接粘贴到Excel）"""
+        """复制表格到剪贴板（HTML格式，支持Excel文本格式）"""
         if not hasattr(self, '_person_data') or not self._person_data:
             self._notify("没有可复制的内容")
             return
 
         headers = ["姓名", "性别", "年龄", "出生日期", "身份证号", "手机号", "银行卡号"]
-        table_data = [headers] + [[p[h] for h in headers] for p in self._person_data]
 
-        tsv = table_data_to_tsv(table_data)
+        # 生成HTML表格，身份证号、手机号、银行卡号使用文本格式
+        html_parts = ['<html><body><table>']
+        # 表头
+        html_parts.append('<tr>' + ''.join(f'<th>{h}</th>' for h in headers) + '</tr>')
+        # 数据行
+        for p in self._person_data:
+            html_parts.append('<tr>')
+            for h in headers:
+                val = str(p[h])
+                if h in ("身份证号", "手机号", "银行卡号"):
+                    # 使用mso-number-format强制文本格式
+                    html_parts.append(f'<td style="mso-number-format:\\@">{val}</td>')
+                else:
+                    html_parts.append(f'<td>{val}</td>')
+            html_parts.append('</tr>')
+        html_parts.append('</table></body></html>')
+
+        html_content = ''.join(html_parts)
+
+        # 同时复制TSV格式（用于纯文本粘贴）
+        tsv = table_data_to_tsv([headers] + [[p[h] for h in headers] for p in self._person_data])
+
+        # 使用多种格式复制到剪贴板，确保Excel能正确识别
         self.clipboard_clear()
         self.clipboard_append(tsv)
+        self.clipboard_append(html_content, type='HTML')
         self._notify("已复制到剪贴板（Excel格式），可直接粘贴")
 
     def _person_export_excel(self):
@@ -1982,12 +2004,14 @@ class ToolboxApp(tk.Tk):
 
         try:
             import openpyxl
+            from openpyxl.styles import numbers
         except ImportError:
             return self._person_export_csv()
 
         f = filedialog.asksaveasfilename(
             title="导出Excel文件",
             defaultextension=".xlsx",
+            initialdir=os.path.join(_APP_DIR, "data"),
             initialfile="人员信息.xlsx",
             filetypes=[("Excel文件", "*.xlsx"), ("所有文件", "*.*")]
         )
@@ -2004,6 +2028,34 @@ class ToolboxApp(tk.Tk):
 
             for p in self._person_data:
                 ws.append([p[h] for h in headers])
+
+            # 设置身份证号、手机号、银行卡号列为文本格式（避免科学计数法）
+            text_columns = [5, 6, 7]  # 列索引：身份证号、手机号、银行卡号
+            for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+                for col_idx in text_columns:
+                    cell = row[col_idx - 1]
+                    cell.number_format = '@'  # 文本格式
+
+            # 自动调整列宽
+            for col in ws.columns:
+                max_length = 0
+                col_letter = col[0].column_letter
+                for cell in col:
+                    try:
+                        cell_len = len(str(cell.value))
+                        # 中文字符宽度约为英文的2倍
+                        chinese_chars = sum(1 for c in str(cell.value) if '\u4e00' <= c <= '\u9fff')
+                        cell_len += chinese_chars
+                        if cell_len > max_length:
+                            max_length = cell_len
+                    except:
+                        pass
+                ws.column_dimensions[col_letter].width = min(max_length + 2, 30)
+
+            # 设置第一行（表头）为粗体
+            from openpyxl.styles import Font
+            for cell in ws[1]:
+                cell.font = Font(bold=True)
 
             wb.save(f)
             self._log(f"已导出Excel: {f}\n")
