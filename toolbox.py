@@ -2048,67 +2048,21 @@ class ToolboxApp(tk.Tk):
             self._log_result_banner(False)
 
     def _person_copy(self):
-        """复制表格：剪贴板放TSV + 自动打开xlsx（格式正确）"""
+        """复制表格到剪贴板（TSV格式）"""
         if not hasattr(self, '_person_data') or not self._person_data:
             self._notify("没有可复制的内容")
             return
 
         headers = ["姓名", "性别", "年龄", "出生日期", "身份证号", "手机号", "银行卡号"]
 
-        # ---- 1. 剪贴板放TSV（通用粘贴）----
         tsv_lines = ['\t'.join(headers)]
         for p in self._person_data:
             tsv_lines.append('\t'.join(str(p[h]) for h in headers))
         tsv = '\n'.join(tsv_lines)
+
         self.clipboard_clear()
         self.clipboard_append(tsv)
-
-        # ---- 2. 生成临时xlsx并打开（格式完美）----
-        try:
-            import openpyxl
-            from openpyxl.styles import Font, Alignment, numbers
-            import tempfile
-            import subprocess
-
-            wb = openpyxl.Workbook()
-            ws = wb.active
-            ws.title = "人员信息"
-
-            # 表头加粗
-            header_font = Font(bold=True)
-            for ci, h in enumerate(headers, 1):
-                cell = ws.cell(row=1, column=ci, value=h)
-                cell.font = header_font
-
-            # 身份证号、手机号、银行卡号列（从1开始）
-            text_col_indices = {5, 6, 7}
-
-            for ri, p in enumerate(self._person_data, 2):
-                for ci, h in enumerate(headers, 1):
-                    val = str(p[h])
-                    cell = ws.cell(row=ri, column=ci)
-                    if ci in text_col_indices:
-                        cell.number_format = '@'
-                        cell.value = val
-                    else:
-                        cell.value = val
-
-            # 自动列宽
-            for ci, h in enumerate(headers, 1):
-                max_len = len(h) * 2
-                for ri in range(2, len(self._person_data) + 2):
-                    v = str(ws.cell(row=ri, column=ci).value or '')
-                    w = len(v) * 2 if any('\u4e00' <= c <= '\u9fff' for c in v) else len(v)
-                    max_len = max(max_len, w)
-                ws.column_dimensions[openpyxl.utils.get_column_letter(ci)].width = min(max_len + 4, 30)
-
-            tmp = os.path.join(tempfile.gettempdir(), '人员信息.xlsx')
-            wb.save(tmp)
-            subprocess.Popen(['cmd', '/c', 'start', '', tmp], shell=False)
-
-            self._notify("已复制到剪贴板 + 已打开Excel文件")
-        except Exception as e:
-            self._notify(f"已复制到剪贴板（打开Excel失败: {e}）")
+        self._notify("已复制到剪贴板")
 
     def _person_export_excel(self):
         """导出为Excel文件"""
