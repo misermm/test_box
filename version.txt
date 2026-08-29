@@ -1,0 +1,31 @@
+# UTF-8
+# PyInstaller 版本信息资源：带完整元数据的 exe 在杀软启发式检测中
+# 可信度评分高于"三无"（无版本/无公司/无图标）程序，可降低误报概率
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(1, 0, 0, 0),
+    prodvers=(1, 0, 0, 0),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo(
+      [
+        StringTable(
+          '080404b0',
+          [StringStruct('CompanyName', 'TestToolbox'),
+           StringStruct('FileDescription', '测试工具箱 - 常用测试辅助工具集合'),
+           StringStruct('FileVersion', '1.0.0.0'),
+           StringStruct('InternalName', 'TestToolbox'),
+           StringStruct('LegalCopyright', 'Copyright (C) 2026'),
+           StringStruct('OriginalFilename', 'TestToolbox.exe'),
+           StringStruct('ProductName', 'TestToolbox'),
+           StringStruct('ProductVersion', '1.0.0.0')])
+      ]),
+    VarFileInfo([VarStruct('Translation', [2052, 1200])])
+  ]
+)

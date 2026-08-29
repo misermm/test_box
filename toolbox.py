@@ -1233,13 +1233,16 @@ class ToolboxApp(tk.Tk):
                 fg="#95a5a6", bg="#2c3e50",
                 font=("Microsoft YaHei UI", 10, "bold"))
             header.pack(fill="x", pady=(8, 2))
+            # 紧跟组头之后 pack，保证子菜单显示在对应一级菜单下面；
+            # 重新展开时也用 after=header 固定位置（否则会 pack 到末尾）
+            body.pack(fill="x", after=header)
 
             def _toggle(h=header, b=body, g=group):
                 if b.winfo_ismapped():
                     b.pack_forget()
                     h.config(text="▸ " + g)
                 else:
-                    b.pack(fill="x")
+                    b.pack(fill="x", after=h)
                     h.config(text="▾ " + g)
 
             header.bind("<Button-1>", lambda e, t=_toggle: t())

@@ -12,7 +12,7 @@ if (Test-Path "build") { Remove-Item -Recurse -Force "build" }
 Get-ChildItem "*.spec" -ErrorAction SilentlyContinue | Remove-Item -Force
 
 Write-Host "[2/3] Building exe..." -ForegroundColor Yellow
-& ".venv\Scripts\python.exe" -m PyInstaller --onefile --noconsole --name "TestToolbox" --collect-all PIL --collect-all cv2 --collect-all paddle --collect-all pyclipper --collect-all shapely --collect-all paddlex --add-data ".venv\Lib\site-packages\paddle\libs;paddle\libs" --add-data "models;models" toolbox.py
+& ".venv\Scripts\python.exe" -m PyInstaller --onefile --noconsole --name "TestToolbox" --icon icon.ico --version-file version.txt --collect-all PIL --collect-all cv2 --collect-all paddle --collect-all pyclipper --collect-all shapely --collect-all paddlex --add-data ".venv\Lib\site-packages\paddle\libs;paddle\libs" --add-data "models;models" toolbox.py
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Build failed!" -ForegroundColor Red

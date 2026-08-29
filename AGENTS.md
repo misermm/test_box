@@ -7,6 +7,8 @@
 
 ```powershell
 .venv\Scripts\python.exe -m PyInstaller --onefile --noconsole --name "TestToolbox" `
+  --icon icon.ico `
+  --version-file version.txt `
   --collect-all PIL `
   --collect-all cv2 `
   --collect-all paddle `
@@ -20,6 +22,10 @@
 
 - 打包后清理临时文件：删除 `build/` 目录和 `*.spec` 文件
 - 产物：`dist/TestToolbox.exe`（单文件可直接运行，约 250MB，模型已内置）
+- 杀软误报缓解：`--icon icon.ico` + `--version-file version.txt` 为 exe
+  附加图标与版本资源（无版本信息/无图标的"三无"exe 在杀软启发式检测中
+  可疑度评分更高）。彻底解决需代码签名证书（付费），未签名程序在 360 等
+  杀软首次运行仍可能提示，加入信任区即可。
 - 表格识别使用本地离线模型：模型预下载在项目 `models/` 目录（不入 git），
   经 `--add-data "models;models"` 打包进 exe；运行时通过环境变量
   `PADDLE_PDX_CACHE_HOME` 选择模型目录（优先存储位置 `<存储位置>\models`
