@@ -1169,6 +1169,9 @@ class ToolboxApp(tk.Tk):
         self.minsize(820, 560)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
+        self._font_size_var = tk.IntVar(value=10)
+        self._setup_menu_bar()
+
         self._buffer = LogBuffer()
         self._poll_job = None
         self._task_thread = None
@@ -2340,15 +2343,28 @@ class ToolboxApp(tk.Tk):
         tk.Entry(r1, textvariable=self._http_url_var).pack(
             side="left", padx=4, fill="x", expand=True)
 
-        # === 请求头：文本/表格切换 ===
-        tk.Label(self.content, text="请求头 (每行 Key: Value，可空):", bg="#f5f6fa",
-                 font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(4, 2))
-        self._headers_nb = ttk.Notebook(self.content)
-        self._headers_nb.pack(fill="x")
+# === 请求头和请求体横向排列 ===
+        style = ttk.Style()
+        style.configure("Treeview", borderwidth=1, relief="solid", fieldbackground="white")
+        style.configure("Treeview.Heading", borderwidth=1, relief="solid", padding=4)
+        style.configure("My.Notebook", background="#e0e0e0")
+        style.configure("My.Notebook.Tab", padding=(12, 4), background="#d0d0d0")
+        style.map("My.Notebook.Tab", background=[("selected", "#3498db"), ("!selected", "#d0d0d0")],
+                  foreground=[("selected", "white"), ("!selected", "black")])
+        hbox = tk.Frame(self.content)
+        hbox.pack(fill="x", expand=True, pady=(4, 2))
+
+        # Left: Headers
+        hdr_left = tk.Frame(hbox)
+        hdr_left.pack(side="left", fill="both", expand=True, padx=(0, 2))
+        tk.Label(hdr_left, text="请求头 (每行 Key: Value，可空):", bg="#f5f6fa",
+                 font=("Microsoft YaHei UI", 10)).pack(anchor="w")
+        self._headers_nb = ttk.Notebook(hdr_left, style="My.Notebook")
+        self._headers_nb.pack(fill="both", expand=True)
         self._hdr_text_frame = tk.Frame(self._headers_nb)
         self._headers_nb.add(self._hdr_text_frame, text="文本")
         self._http_headers_text = tk.Text(self._hdr_text_frame, height=4, font=("Consolas", 10),
-                                           wrap="word", bg="white")
+                                                wrap="word", bg="white")
         self._http_headers_text.pack(fill="both", expand=True)
         self._http_headers_text.insert("1.0",
             "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36\n"
@@ -2357,7 +2373,7 @@ class ToolboxApp(tk.Tk):
         self._hdr_table_frame = tk.Frame(self._headers_nb)
         self._headers_nb.add(self._hdr_table_frame, text="表格")
         self._hdr_tree = ttk.Treeview(self._hdr_table_frame, columns=("key", "value"), show="headings",
-                                       height=4)
+                                               height=4)
         self._hdr_tree.heading("key", text="Key")
         self._hdr_tree.heading("value", text="Value")
         self._hdr_tree.column("key", width=180)
@@ -2369,23 +2385,25 @@ class ToolboxApp(tk.Tk):
         self._hdr_tree.bind("<Double-1>", self._on_hdr_tree_double_click)
         btn_frame = tk.Frame(self._hdr_table_frame)
         btn_frame.pack(side="bottom", fill="x", pady=2)
-        tk.Button(btn_frame, text="添加", command=self._add_hdr_row, width=6).pack(side="left", padx=2, expand=True)
-        tk.Button(btn_frame, text="删除", command=self._del_hdr_row, width=6).pack(side="left", padx=2, expand=True)
+        tk.Button(btn_frame, text="添加", command=self._add_hdr_row, width=6).pack(side="top", fill="x", padx=2, expand=True)
+        tk.Button(btn_frame, text="删除", command=self._del_hdr_row, width=6).pack(side="top", fill="x", padx=2, expand=True)
 
-        # === 请求体：文本/表格切换 ===
-        tk.Label(self.content, text="请求体 (POST时使用，可空):", bg="#f5f6fa",
-                 font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(4, 2))
-        self._body_nb = ttk.Notebook(self.content)
-        self._body_nb.pack(fill="x")
+        # Right: Body
+        body_left = tk.Frame(hbox)
+        body_left.pack(side="right", fill="both", expand=True, padx=(2, 0))
+        tk.Label(body_left, text="请求体 (POST时使用，可空):", bg="#f5f6fa",
+                 font=("Microsoft YaHei UI", 10)).pack(anchor="w")
+        self._body_nb = ttk.Notebook(body_left, style="My.Notebook")
+        self._body_nb.pack(fill="both", expand=True)
         self._body_text_frame = tk.Frame(self._body_nb)
         self._body_nb.add(self._body_text_frame, text="文本")
         self._http_body_text = tk.Text(self._body_text_frame, height=4, font=("Consolas", 10),
-                                        wrap="word", bg="white")
+                                                wrap="word", bg="white")
         self._http_body_text.pack(fill="both", expand=True)
         self._body_table_frame = tk.Frame(self._body_nb)
         self._body_nb.add(self._body_table_frame, text="表格")
         self._body_tree = ttk.Treeview(self._body_table_frame, columns=("key", "value"), show="headings",
-                                        height=4)
+                                               height=4)
         self._body_tree.heading("key", text="Key")
         self._body_tree.heading("value", text="Value")
         self._body_tree.column("key", width=180)
@@ -2397,12 +2415,9 @@ class ToolboxApp(tk.Tk):
         self._body_tree.bind("<Double-1>", self._on_body_tree_double_click)
         btn_frame2 = tk.Frame(self._body_table_frame)
         btn_frame2.pack(side="bottom", fill="x", pady=2)
-        tk.Button(btn_frame2, text="添加", command=self._add_body_row, width=6).pack(side="left", padx=2, expand=True)
-        tk.Button(btn_frame2, text="删除", command=self._del_body_row, width=6).pack(side="left", padx=2, expand=True)
+        tk.Button(btn_frame2, text="添加", command=self._add_body_row, width=6).pack(side="top", fill="x", padx=2, expand=True)
+        tk.Button(btn_frame2, text="删除", command=self._del_body_row, width=6).pack(side="top", fill="x", padx=2, expand=True)
 
-        # === 导入接口 ===
-        tk.Label(self.content, text="导入接口 (粘贴curl命令后点击导入):", bg="#f5f6fa",
-                 font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(6, 2))
         curl_frame = self._row(self.content)
         self._curl_text = tk.Text(curl_frame, height=2, font=("Consolas", 10), wrap="word", bg="white")
         self._curl_text.pack(side="left", fill="x", expand=True, padx=(0, 4))
@@ -3439,6 +3454,39 @@ class ToolboxApp(tk.Tk):
         lbl.pack(anchor="nw", pady=(10, 0))
 
     # ---------------- 退出 ----------------
+    def _setup_menu_bar(self):
+        import tkinter.font as tkfont
+        self._menubar = tk.Menu(self)
+        settings_menu = tk.Menu(self._menubar, tearoff=0)
+        settings_menu.add_command(label="字体大小", command=self._change_font_size)
+        self._menubar.add_cascade(label="设置", menu=settings_menu)
+        self.config(menu=self._menubar)
+
+    def _change_font_size(self):
+        dialog = tk.Toplevel(self)
+        dialog.title("字体大小")
+        dialog.transient(self)
+        dialog.grab_set()
+        tk.Label(dialog, text="选择字体大小:").pack(padx=10, pady=(8, 2))
+        var = tk.IntVar(value=self._font_size_var.get())
+        for size in [8, 10, 12, 14, 16, 18]:
+            tk.Radiobutton(dialog, text=str(size), variable=var, value=size).pack(anchor="w", padx=10)
+        def _apply():
+            self._font_size_var.set(var.get())
+            self._apply_font_size(var.get())
+            dialog.destroy()
+        tk.Button(dialog, text="确定", command=_apply).pack(pady=(2, 8))
+        dialog.update_idletasks()
+        dialog.geometry(f"+{self.winfo_rootx()+self.winfo_width()//2-60}+{self.winfo_rooty()+self.winfo_height()//2-80}")
+
+    def _apply_font_size(self, size):
+        import tkinter.font as tkfont
+        for name in ("TkDefaultFont", "TkTextFont", "TkFixedFont", "TkMenuFont", "TkButtonFont", "TkCaptionFont", "TkHeadingFont"):
+            try:
+                tkfont.nametofont(name).configure(size=size)
+            except tkfont.FontNotFound:
+                pass
+
     def _on_close(self):
         if self._running:
             if not messagebox.askyesno("退出", "有任务正在运行，确定退出吗？"):
