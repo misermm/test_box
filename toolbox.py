@@ -2506,7 +2506,7 @@ class ToolboxApp(tk.Tk):
             if url_match:
                 url = url_match.group(1)
             self._http_url_var.set(url)
-            if method in ("GET", "POST"):
+            if method:
                 self._http_method_var.set(method)
             self._http_headers_text.delete("1.0", "end")
             htext = "\n".join(headers)
