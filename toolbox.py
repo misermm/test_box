@@ -2855,7 +2855,7 @@ class ToolboxApp(tk.Tk):
         tk.Button(btn_frame, text="截图", command=self._ocr_capture,
                   bg="#3498db", fg="white",
                   font=("Microsoft YaHei UI", 11, "bold"), width=12).pack(side="left", padx=4)
-        tk.Button(btn_frame, text="选择图片文件", command=self._ocr_select_file, width=14).pack(side="left", padx=4)
+        tk.Button(btn_frame, text="导入接口", command=self._ocr_select_file, width=14).pack(side="left", padx=4)
 
         # 识别结果表格区域
         result_label = tk.Label(self.content, text="识别结果:", bg="#f5f6fa",
@@ -3190,20 +3190,23 @@ class ToolboxApp(tk.Tk):
         capture_region(parent=self, callback=on_region_selected)
 
     def _ocr_select_file(self):
-        """选择图片文件"""
+        """导入接口（选择图片文件）"""
         f = filedialog.askopenfilename(
-            title="选择图片文件",
+            title="导入接口",
             filetypes=[("图片文件", "*.jpg *.jpeg *.png *.bmp *.tiff *.tif *.gif")]
         )
         if f:
             try:
+                import numpy as np
                 image = Image.open(f)
-                # 提示语在 _start_task 之后写，避免被其清空日志面板
-                self._start_task(self._ocr_do_recognize, image,
+                image.load()
+                rgb = np.asarray(image.convert("RGB"))
+                predict_input = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+                self._start_task(self._ocr_do_recognize, predict_input,
                                  on_done=self._ocr_on_recognize_done)
-                self._log(f"已加载图片: {os.path.basename(f)}，正在识别表格...\n")
+                self._log(f"已导入图片: {os.path.basename(f)}，正在识别表格...\n")
             except Exception as e:
-                messagebox.showerror("错误", f"打开图片失败: {e}")
+                messagebox.showerror("错误", f"导入图片失败: {e}")
 
     def _ocr_do_recognize(self, image):
         """执行表格识别（在后台线程中运行）"""
