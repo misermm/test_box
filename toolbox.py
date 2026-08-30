@@ -3157,6 +3157,7 @@ class ToolboxApp(tk.Tk):
         """清空数据"""
         self._ocr_table_data = []
         self._ocr_tree.delete(*self._ocr_tree.get_children())
+        self._ocr_tree["columns"] = []
 
     # =============== 页面13: 关于 ===============
     def _show_page_about(self):
