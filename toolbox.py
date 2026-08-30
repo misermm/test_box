@@ -2334,8 +2334,8 @@ class ToolboxApp(tk.Tk):
         r1 = self._row(self.content)
         self._label(r1, "方法:").pack(side="left")
         self._http_method_var = tk.StringVar(value="GET")
-        ttk.Combobox(r1, textvariable=self._http_method_var, state="readonly",
-                     values=["GET", "POST"], width=6).pack(side="left", padx=(4, 10))
+ttk.Combobox(r1, textvariable=self._http_method_var, state="readonly",
+                      values=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"], width=10).pack(side="left", padx=(4, 10))
         self._label(r1, "URL:").pack(side="left")
         tk.Entry(r1, textvariable=self._http_url_var).pack(
             side="left", padx=4, fill="x", expand=True)
@@ -2480,6 +2480,7 @@ class ToolboxApp(tk.Tk):
             return
         try:
             method = "GET"
+            has_data = False
             url = ""
             headers = []
             body = None
@@ -2487,18 +2488,21 @@ class ToolboxApp(tk.Tk):
             m = re.search(r'-(?:X|request)\s+(\w+)', curl, re.IGNORECASE)
             if m:
                 method = m.group(1).upper()
-            # 匹配 -H/--header 请求头（支持单双引号包裹）
-            for hm in re.finditer(r'-(?:H|header)\s+([\'"]?)(.*?)\1(?=\s|$)', curl, re.IGNORECASE):
-                hval = hm.group(2).strip()
-                if hval:
-                    headers.append(hval)
-            # 匹配 -d/--data/--data-raw 请求体（支持单双引号包裹和多词值）
+            # 匹配 -d/--data/--data-raw 请求体
             for dm in re.finditer(r'-(?:d|data|data-raw)\s+([\'"]?)(.*?)\1', curl, re.IGNORECASE):
                 bval = dm.group(2).strip()
                 if bval:
                     if bval.startswith(("'", '"')) and bval.endswith(("'", '"')):
                         bval = bval[1:-1]
                     body = bval
+                    has_data = True
+            if has_data and method == "GET":
+                method = "POST"
+            # 匹配 -H/--header 请求头（支持单双引号包裹）
+            for hm in re.finditer(r'-(?:H|header)\s+([\'"]?)(.*?)\1(?=\s|$)', curl, re.IGNORECASE):
+                hval = hm.group(2).strip()
+                if hval:
+                    headers.append(hval)
             # 提取 URL（第一个非 - 开头的参数，或 -o/-url 后的值）
             url_match = re.search(r'"(https?://[^"]+)"', curl)
             if not url_match:
