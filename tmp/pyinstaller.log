@@ -1,0 +1,379 @@
+148 INFO: PyInstaller: 6.22.2, contrib hooks: 2026.7
+148 INFO: Python: 3.11.8
+195 INFO: Platform: Windows-10-10.0.26100-SP0
+195 INFO: Python environment: E:\AI\test_box\.venv
+196 INFO: wrote E:\AI\test_box\TestToolbox.spec
+信息: 用提供的模式无法找到文件。
+E:\AI\test_box\.venv\Lib\site-packages\paddle\utils\cpp_extension\extension_utils.py:712: UserWarning: No ccache found. Please be aware that recompiling all source files may be required. You can download and install ccache from: https://github.com/ccache/ccache/blob/master/doc/INSTALL.md
+  warnings.warn(warning_message)
+1064 WARNING: Failed to collect submodules for 'paddle.tensorrt' because importing 'paddle.tensorrt' raised: AttributeError: module 'paddle.base.libpaddle' has no attribute 'register_paddle_plugin'
+1266 WARNING: Failed to collect submodules for 'paddlex.inference.serving' because importing 'paddlex.inference.serving' raised: paddlex.utils.deps.DependencyError: The serving plugin is not available. Please install it properly.
+信息: 用提供的模式无法找到文件。
+E:\AI\test_box\.venv\Lib\site-packages\paddle\utils\cpp_extension\extension_utils.py:712: UserWarning: No ccache found. Please be aware that recompiling all source files may be required. You can download and install ccache from: https://github.com/ccache/ccache/blob/master/doc/INSTALL.md
+  warnings.warn(warning_message)
+9861 INFO: Module search paths (PYTHONPATH):
+['E:\\AI\\test_box',
+ 'D:\\Program Files\\python\\installs\\Lib\\site-packages',
+ 'E:\\AI\\test_box\\%PYTHONPATH%',
+ 'D:\\Program Files\\Python311\\python311.zip',
+ 'D:\\Program Files\\Python311\\DLLs',
+ 'D:\\Program Files\\Python311\\Lib',
+ 'D:\\Program Files\\Python311',
+ 'E:\\AI\\test_box\\.venv',
+ 'E:\\AI\\test_box\\.venv\\Lib\\site-packages',
+ 'E:\\AI\\test_box']
+10178 INFO: Appending 'binaries' from .spec
+10180 INFO: Appending 'datas' from .spec
+11123 INFO: checking Analysis
+11123 INFO: Building Analysis because Analysis-00.toc is non existent
+11123 INFO: Looking for Python shared library...
+11123 INFO: Using Python shared library: D:\Program Files\Python311\python311.dll
+11123 INFO: Running Analysis Analysis-00.toc
+11123 INFO: Target bytecode optimization level: 0
+11125 INFO: Initializing module dependency graph...
+11127 INFO: Initializing module graph hook caches...
+11146 INFO: Analyzing modules for base_library.zip ...
+12013 INFO: Processing standard module hook 'hook-heapq.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+12219 INFO: Processing standard module hook 'hook-encodings.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+13626 INFO: Processing standard module hook 'hook-math.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+13722 INFO: Processing standard module hook 'hook-pickle.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+15067 INFO: Caching module dependency graph...
+15108 INFO: Analyzing E:\AI\test_box\toolbox.py
+15263 INFO: Processing standard module hook 'hook-cv2.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+15743 INFO: Processing standard module hook 'hook-numpy.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+16244 INFO: Processing standard module hook 'hook-difflib.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+16440 INFO: Processing standard module hook 'hook-multiprocessing.util.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+16584 INFO: Processing standard module hook 'hook-xml.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+16820 INFO: Processing standard module hook 'hook-_ctypes.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+17481 INFO: Processing standard module hook 'hook-sysconfig.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+17550 INFO: Processing standard module hook 'hook-platform.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+17951 INFO: Processing standard module hook 'hook-webbrowser.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+17993 INFO: Processing standard module hook 'hook-psutil.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+18777 INFO: Processing pre-safe-import-module hook 'hook-typing_extensions.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+18778 INFO: SetuptoolsInfo: initializing cached setuptools info...
+19773 INFO: Processing standard module hook 'hook-charset_normalizer.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+20149 INFO: Processing pre-safe-import-module hook 'hook-packaging.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+20346 INFO: Processing standard module hook 'hook-urllib3.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+20470 INFO: Processing pre-safe-import-module hook 'hook-backports.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+20470 INFO: Setuptools: 'backports' appears to be a full setuptools-vendored copy - creating alias to 'setuptools._vendor.backports'!
+20476 INFO: Processing standard module hook 'hook-setuptools.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+20488 INFO: Processing pre-safe-import-module hook 'hook-distutils.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+20489 INFO: Processing pre-find-module-path hook 'hook-distutils.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_find_module_path'
+20814 INFO: Processing standard module hook 'hook-distutils.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+20867 INFO: Processing standard module hook 'hook-distutils.util.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+20899 INFO: Processing standard module hook 'hook-_osx_support.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+21026 INFO: Processing pre-safe-import-module hook 'hook-jaraco.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+21026 INFO: Setuptools: 'jaraco' appears to be a full setuptools-vendored copy - creating alias to 'setuptools._vendor.jaraco'!
+21036 INFO: Processing standard module hook 'hook-setuptools._vendor.jaraco.text.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+21039 INFO: Processing pre-safe-import-module hook 'hook-importlib_resources.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+21122 INFO: Processing pre-safe-import-module hook 'hook-more_itertools.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+21122 INFO: Setuptools: 'more_itertools' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.more_itertools'!
+21511 INFO: Processing pre-safe-import-module hook 'hook-tomli.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+21511 INFO: Setuptools: 'tomli' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.tomli'!
+21988 INFO: Processing pre-safe-import-module hook 'hook-wheel.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+21988 INFO: Setuptools: 'wheel' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.wheel'!
+22347 INFO: Processing standard module hook 'hook-certifi.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+22400 INFO: Processing standard module hook 'hook-chardet.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+23266 INFO: Processing standard module hook 'hook-ruamel.yaml.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+23847 INFO: Processing standard module hook 'hook-sqlite3.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+25494 INFO: Processing standard module hook 'hook-anyio.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+26879 INFO: Processing standard module hook 'hook-pandas.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+28141 INFO: Processing standard module hook 'hook-zoneinfo.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+29536 INFO: Processing standard module hook 'hook-pandas.io.formats.style.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+31865 INFO: Processing standard module hook 'hook-pandas.plotting.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+32309 INFO: Processing standard module hook 'hook-dateutil.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+32635 INFO: Processing pre-safe-import-module hook 'hook-six.moves.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+33279 INFO: Processing standard module hook 'hook-openpyxl.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+33911 INFO: Processing standard module hook 'hook-xml.etree.cElementTree.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+34243 INFO: Processing standard module hook 'hook-PIL.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+34320 INFO: Processing standard module hook 'hook-PIL.Image.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+34807 INFO: Processing standard module hook 'hook-PIL.ImageFilter.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+36135 INFO: Processing standard module hook 'hook-pandas.io.clipboard.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+36226 INFO: Processing standard module hook 'hook-fsspec.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+36821 INFO: Processing standard module hook 'hook-xml.dom.domreg.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+46589 INFO: Processing pre-safe-import-module hook 'hook-tensorflow.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\pre_safe_import_module'
+54575 INFO: Processing standard module hook 'hook-pydantic.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+69899 INFO: Processing standard module hook 'hook-shapely.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+71398 INFO: Processing pre-safe-import-module hook 'hook-importlib_metadata.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+71398 INFO: Setuptools: 'importlib_metadata' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.importlib_metadata'!
+71420 INFO: Processing standard module hook 'hook-setuptools._vendor.importlib_metadata.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+71444 INFO: Processing pre-safe-import-module hook 'hook-zipp.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+71444 INFO: Setuptools: 'zipp' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.zipp'!
+E:\AI\test_box\.venv\Lib\site-packages\modelscope\models\cv\anydoor\ldm\models\diffusion\ddpm.py:235: SyntaxWarning: 'int' object is not callable; perhaps you missed a comma?
+  tmp = self.betas**2 (tmp * (1 - self.alphas_cumprod))
+82966 INFO: Processing pre-find-module-path hook 'hook-tkinter.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\pre_find_module_path'
+82967 INFO: TclTkInfo: initializing cached Tcl/Tk info...
+84574 INFO: Processing standard module hook 'hook-_tkinter.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+84732 INFO: Processing standard module hook 'hook-Crypto.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+86316 INFO: Processing standard module hook 'hook-prettytable.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+86608 INFO: Processing standard module hook 'hook-wcwidth.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+91658 INFO: Processing standard module hook 'hook-pynput.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+92115 INFO: Analyzing hidden import 'PIL.AvifImagePlugin'
+92124 INFO: Analyzing hidden import 'PIL.BdfFontFile'
+92132 INFO: Analyzing hidden import 'PIL.BlpImagePlugin'
+92148 INFO: Analyzing hidden import 'PIL.BufrStubImagePlugin'
+92150 INFO: Analyzing hidden import 'PIL.ContainerIO'
+92154 INFO: Analyzing hidden import 'PIL.CurImagePlugin'
+92156 INFO: Analyzing hidden import 'PIL.DcxImagePlugin'
+92165 INFO: Analyzing hidden import 'PIL.DdsImagePlugin'
+92180 INFO: Analyzing hidden import 'PIL.EpsImagePlugin'
+92190 INFO: Analyzing hidden import 'PIL.FitsImagePlugin'
+92195 INFO: Analyzing hidden import 'PIL.FliImagePlugin'
+92200 INFO: Analyzing hidden import 'PIL.FpxImagePlugin'
+92206 INFO: Analyzing hidden import 'PIL.FtexImagePlugin'
+92208 INFO: Analyzing hidden import 'PIL.GbrImagePlugin'
+92211 INFO: Analyzing hidden import 'PIL.GdImageFile'
+92214 INFO: Analyzing hidden import 'PIL.GribStubImagePlugin'
+92215 INFO: Analyzing hidden import 'PIL.Hdf5StubImagePlugin'
+92218 INFO: Analyzing hidden import 'PIL.IcnsImagePlugin'
+92248 INFO: Analyzing hidden import 'PIL.IcoImagePlugin'
+92256 INFO: Analyzing hidden import 'PIL.ImImagePlugin'
+92265 INFO: Analyzing hidden import 'PIL.ImageMorph'
+92272 INFO: Analyzing hidden import 'PIL.ImageTransform'
+92275 INFO: Analyzing hidden import 'PIL.ImtImagePlugin'
+92278 INFO: Analyzing hidden import 'PIL.IptcImagePlugin'
+92284 INFO: Analyzing hidden import 'PIL.McIdasImagePlugin'
+92287 INFO: Analyzing hidden import 'PIL.MicImagePlugin'
+92290 INFO: Analyzing hidden import 'PIL.MpegImagePlugin'
+92293 INFO: Analyzing hidden import 'PIL.MspImagePlugin'
+92298 INFO: Analyzing hidden import 'PIL.PSDraw'
+92302 INFO: Analyzing hidden import 'PIL.PalmImagePlugin'
+92310 INFO: Analyzing hidden import 'PIL.PcdImagePlugin'
+92313 INFO: Analyzing hidden import 'PIL.PcfFontFile'
+92319 INFO: Analyzing hidden import 'PIL.PdfImagePlugin'
+92361 INFO: Analyzing hidden import 'PIL.PixarImagePlugin'
+92363 INFO: Analyzing hidden import 'PIL.PsdImagePlugin'
+92371 INFO: Analyzing hidden import 'PIL.QoiImagePlugin'
+92381 INFO: Analyzing hidden import 'PIL.SgiImagePlugin'
+92386 INFO: Analyzing hidden import 'PIL.SpiderImagePlugin'
+92395 INFO: Processing standard module hook 'hook-PIL.SpiderImagePlugin.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+92396 INFO: Analyzing hidden import 'PIL.SunImagePlugin'
+92400 INFO: Analyzing hidden import 'PIL.TarIO'
+92402 INFO: Analyzing hidden import 'PIL.TgaImagePlugin'
+92409 INFO: Analyzing hidden import 'PIL.WalImageFile'
+92412 INFO: Analyzing hidden import 'PIL.WebPImagePlugin'
+92422 INFO: Analyzing hidden import 'PIL.WmfImagePlugin'
+92427 INFO: Analyzing hidden import 'PIL.XVThumbImagePlugin'
+92429 INFO: Analyzing hidden import 'PIL.XbmImagePlugin'
+92432 INFO: Analyzing hidden import 'PIL.XpmImagePlugin'
+92436 INFO: Analyzing hidden import 'PIL.__main__'
+92438 INFO: Analyzing hidden import 'PIL._tkinter_finder'
+92439 INFO: Analyzing hidden import 'PIL.report'
+92440 INFO: Analyzing hidden import 'cv2.config'
+92440 INFO: Analyzing hidden import 'cv2.config-3'
+92442 INFO: Analyzing hidden import 'cv2.cv2'
+92443 INFO: Analyzing hidden import 'cv2.data'
+92444 INFO: Analyzing hidden import 'cv2.load_config_py2'
+92445 INFO: Analyzing hidden import 'cv2.mat_wrapper'
+92446 INFO: Analyzing hidden import 'cv2.misc'
+92449 INFO: Analyzing hidden import 'cv2.typing'
+92454 INFO: Analyzing hidden import 'cv2.utils'
+92455 INFO: Analyzing hidden import 'paddle.base.default_scope_funcs'
+92456 INFO: Analyzing hidden import 'paddle.base.proto.distributed_strategy_pb2'
+92461 INFO: Analyzing hidden import 'paddle.base.proto.trainer_desc_pb2'
+92463 INFO: Analyzing hidden import 'paddle.check_import_scipy'
+92465 INFO: Analyzing hidden import 'paddle.cinn_config'
+92466 INFO: Analyzing hidden import 'paddle.distributed.auto_parallel._utils'
+92468 INFO: Analyzing hidden import 'paddle.distributed.auto_parallel.dygraph'
+92469 INFO: Analyzing hidden import 'paddle.distributed.auto_parallel.fully_shard'
+92474 INFO: Analyzing hidden import 'paddle.distributed.auto_parallel.pipelining'
+92475 INFO: Analyzing hidden import 'paddle.distributed.auto_parallel.pipelining._backward'
+92485 INFO: Analyzing hidden import 'paddle.distributed.auto_parallel.pipelining.microbatch'
+92495 INFO: Analyzing hidden import 'paddle.distributed.auto_parallel.pipelining.schedules'
+92552 INFO: Analyzing hidden import 'paddle.distributed.auto_parallel.static.auto_align_tool'
+92566 INFO: Analyzing hidden import 'paddle.distributed.auto_parallel.static.process_mesh_v2'
+92569 INFO: Analyzing hidden import 'paddle.distributed.auto_parallel.static.profiler_helper_static'
+92577 INFO: Analyzing hidden import 'paddle.distributed.auto_tuner.cost_model'
+92580 INFO: Analyzing hidden import 'paddle.distributed.auto_tuner.memory_cost_model'
+92582 INFO: Analyzing hidden import 'paddle.distributed.elastic'
+92584 INFO: Analyzing hidden import 'paddle.distributed.fleet.base.orthogonal_strategy'
+92595 INFO: Analyzing hidden import 'paddle.distributed.fleet.meta_optimizers.parameter_server_optimizer'
+92609 INFO: Analyzing hidden import 'paddle.distributed.fleet.meta_parallel.pp_utils.profiler_helper'
+92611 INFO: Analyzing hidden import 'paddle.distributed.fleet.meta_parallel.sharding.group_sharded_fully_shard'
+92631 INFO: Analyzing hidden import 'paddle.distributed.fleet.utils.hybrid_parallel_inference'
+92648 INFO: Analyzing hidden import 'paddle.distributed.fleet.utils.pp_parallel_adaptor'
+92665 INFO: Analyzing hidden import 'paddle.distributed.fsdp'
+92668 INFO: Analyzing hidden import 'paddle.distributed.launch.__main__'
+92670 INFO: Analyzing hidden import 'paddle.distributed.launch.context.event'
+92671 INFO: Analyzing hidden import 'paddle.distributed.launch.context.resource'
+92671 INFO: Analyzing hidden import 'paddle.distributed.launch.plugins.test'
+92676 INFO: Analyzing hidden import 'paddle.distributed.metric'
+92681 INFO: Analyzing hidden import 'paddle.distributed.models'
+92682 INFO: Analyzing hidden import 'paddle.distributed.models.moe'
+92683 INFO: Analyzing hidden import 'paddle.distributed.models.moe.utils'
+92688 INFO: Analyzing hidden import 'paddle.distributed.ps.utils.collective_transpiler'
+92716 INFO: Analyzing hidden import 'paddle.distributed.ps.utils.ps_infer_utils'
+92718 INFO: Analyzing hidden import 'paddle.distributed.transpiler.geo_sgd_transpiler'
+92734 INFO: Analyzing hidden import 'paddle.distributed.utils.process_utils'
+92742 INFO: Analyzing hidden import 'paddle.incubate.autograd.generate_op_map'
+92748 INFO: Analyzing hidden import 'paddle.incubate.distributed.fleet.collective'
+92761 INFO: Analyzing hidden import 'paddle.incubate.distributed.fleet.fleet_util'
+92976 INFO: Analyzing hidden import 'paddle.incubate.distributed.fleet.parameter_server.ir.ufind'
+92979 INFO: Analyzing hidden import 'paddle.incubate.distributed.models'
+92979 INFO: Analyzing hidden import 'paddle.incubate.distributed.models.moe'
+93008 INFO: Analyzing hidden import 'paddle.inference.contrib'
+93010 INFO: Analyzing hidden import 'paddle.inference.contrib.utils'
+93011 INFO: Analyzing hidden import 'paddle.jit.layer'
+93013 INFO: Analyzing hidden import 'paddle.nn.functional.transformer'
+93014 INFO: Analyzing hidden import 'paddle.quantization.observers'
+93021 INFO: Analyzing hidden import 'paddle.quantization.quanters'
+93031 INFO: Analyzing hidden import 'shapely._geos'
+93031 INFO: Analyzing hidden import 'shapely.algorithms.polylabel'
+93033 INFO: Analyzing hidden import 'shapely.conftest'
+93038 INFO: Analyzing hidden import 'shapely.geos'
+93039 INFO: Analyzing hidden import 'shapely.ops'
+93056 INFO: Analyzing hidden import 'shapely.plotting'
+93061 INFO: Analyzing hidden import 'shapely.speedups'
+93061 INFO: Analyzing hidden import 'shapely.testing'
+93067 INFO: Analyzing hidden import 'shapely.tests'
+93068 INFO: Analyzing hidden import 'shapely.tests.common'
+93074 INFO: Analyzing hidden import 'shapely.tests.geometry'
+93075 INFO: Analyzing hidden import 'shapely.tests.geometry.test_collection'
+93081 INFO: Analyzing hidden import 'shapely.tests.geometry.test_coords'
+93087 INFO: Analyzing hidden import 'shapely.tests.geometry.test_decimal'
+93091 INFO: Analyzing hidden import 'shapely.tests.geometry.test_emptiness'
+93096 INFO: Analyzing hidden import 'shapely.tests.geometry.test_equality'
+93105 INFO: Analyzing hidden import 'shapely.tests.geometry.test_format'
+93109 INFO: Analyzing hidden import 'shapely.tests.geometry.test_geometry_base'
+93122 INFO: Analyzing hidden import 'shapely.tests.geometry.test_hash'
+93124 INFO: Analyzing hidden import 'shapely.tests.geometry.test_linestring'
+93131 INFO: Analyzing hidden import 'shapely.tests.geometry.test_multi'
+93133 INFO: Analyzing hidden import 'shapely.tests.geometry.test_multilinestring'
+93136 INFO: Analyzing hidden import 'shapely.tests.geometry.test_multipoint'
+93141 INFO: Analyzing hidden import 'shapely.tests.geometry.test_multipolygon'
+93145 INFO: Analyzing hidden import 'shapely.tests.geometry.test_point'
+93152 INFO: Analyzing hidden import 'shapely.tests.geometry.test_polygon'
+93170 INFO: Analyzing hidden import 'shapely.tests.legacy'
+93171 INFO: Analyzing hidden import 'shapely.tests.legacy.conftest'
+93173 INFO: Analyzing hidden import 'shapely.tests.legacy.test_affinity'
+93182 INFO: Analyzing hidden import 'shapely.tests.legacy.test_box'
+93184 INFO: Analyzing hidden import 'shapely.tests.legacy.test_buffer'
+93191 INFO: Analyzing hidden import 'shapely.tests.legacy.test_cga'
+93193 INFO: Analyzing hidden import 'shapely.tests.legacy.test_clip_by_rect'
+93196 INFO: Analyzing hidden import 'shapely.tests.legacy.test_create_inconsistent_dimensionality'
+93202 INFO: Analyzing hidden import 'shapely.tests.legacy.test_delaunay'
+93204 INFO: Analyzing hidden import 'shapely.tests.legacy.test_empty_polygons'
+93206 INFO: Analyzing hidden import 'shapely.tests.legacy.test_equality'
+93208 INFO: Analyzing hidden import 'shapely.tests.legacy.test_geointerface'
+93211 INFO: Analyzing hidden import 'shapely.tests.legacy.test_invalid_geometries'
+93213 INFO: Analyzing hidden import 'shapely.tests.legacy.test_linear_referencing'
+93216 INFO: Analyzing hidden import 'shapely.tests.legacy.test_linemerge'
+93220 INFO: Analyzing hidden import 'shapely.tests.legacy.test_locale'
+93221 INFO: Analyzing hidden import 'shapely.tests.legacy.test_make_valid'
+93224 INFO: Analyzing hidden import 'shapely.tests.legacy.test_mapping'
+93225 INFO: Analyzing hidden import 'shapely.tests.legacy.test_minimum_clearance'
+93227 INFO: Analyzing hidden import 'shapely.tests.legacy.test_ndarrays'
+93228 INFO: Analyzing hidden import 'shapely.tests.legacy.test_nearest'
+93230 INFO: Analyzing hidden import 'shapely.tests.legacy.test_operations'
+93235 INFO: Analyzing hidden import 'shapely.tests.legacy.test_operators'
+93239 INFO: Analyzing hidden import 'shapely.tests.legacy.test_orient'
+93244 INFO: Analyzing hidden import 'shapely.tests.legacy.test_parallel_offset'
+93247 INFO: Analyzing hidden import 'shapely.tests.legacy.test_persist'
+93250 INFO: Analyzing hidden import 'shapely.tests.legacy.test_pickle'
+93255 INFO: Analyzing hidden import 'shapely.tests.legacy.test_polygonize'
+93258 INFO: Analyzing hidden import 'shapely.tests.legacy.test_polylabel'
+93261 INFO: Analyzing hidden import 'shapely.tests.legacy.test_predicates'
+93265 INFO: Analyzing hidden import 'shapely.tests.legacy.test_prepared'
+93268 INFO: Analyzing hidden import 'shapely.tests.legacy.test_products_z'
+93269 INFO: Analyzing hidden import 'shapely.tests.legacy.test_shape'
+93272 INFO: Analyzing hidden import 'shapely.tests.legacy.test_shared_paths'
+93275 INFO: Analyzing hidden import 'shapely.tests.legacy.test_singularity'
+93277 INFO: Analyzing hidden import 'shapely.tests.legacy.test_snap'
+93279 INFO: Analyzing hidden import 'shapely.tests.legacy.test_split'
+93290 INFO: Analyzing hidden import 'shapely.tests.legacy.test_substring'
+93299 INFO: Analyzing hidden import 'shapely.tests.legacy.test_svg'
+93304 INFO: Analyzing hidden import 'shapely.tests.legacy.test_transform'
+93308 INFO: Analyzing hidden import 'shapely.tests.legacy.test_union'
+93311 INFO: Analyzing hidden import 'shapely.tests.legacy.test_validation'
+93313 INFO: Analyzing hidden import 'shapely.tests.legacy.test_vectorized'
+93320 INFO: Analyzing hidden import 'shapely.tests.legacy.test_voronoi_diagram'
+93324 INFO: Analyzing hidden import 'shapely.tests.legacy.test_wkb'
+93330 INFO: Analyzing hidden import 'shapely.tests.legacy.test_wkt'
+93332 INFO: Analyzing hidden import 'shapely.tests.legacy.threading_test'
+93334 INFO: Analyzing hidden import 'shapely.tests.test_constructive'
+93375 INFO: Analyzing hidden import 'shapely.tests.test_coordinates'
+93388 INFO: Analyzing hidden import 'shapely.tests.test_coverage'
+93396 INFO: Analyzing hidden import 'shapely.tests.test_creation'
+93419 INFO: Analyzing hidden import 'shapely.tests.test_creation_indices'
+93436 INFO: Analyzing hidden import 'shapely.tests.test_decorators'
+93442 INFO: Analyzing hidden import 'shapely.tests.test_geometry'
+93461 INFO: Analyzing hidden import 'shapely.tests.test_io'
+93497 INFO: Analyzing hidden import 'shapely.tests.test_linear'
+93504 INFO: Analyzing hidden import 'shapely.tests.test_measurement'
+93514 INFO: Analyzing hidden import 'shapely.tests.test_misc'
+93520 INFO: Analyzing hidden import 'shapely.tests.test_plotting'
+93621 INFO: Analyzing hidden import 'shapely.tests.test_predicates'
+93635 INFO: Analyzing hidden import 'shapely.tests.test_ragged_array'
+93650 INFO: Analyzing hidden import 'shapely.tests.test_set_operations'
+93666 INFO: Analyzing hidden import 'shapely.tests.test_strtree'
+93734 INFO: Analyzing hidden import 'shapely.tests.test_testing'
+93736 INFO: Analyzing hidden import 'paddlex.__main__'
+93783 INFO: Analyzing hidden import 'paddlex.engine'
+93788 INFO: Analyzing hidden import 'paddlex.inference.models.doc_vlm.processors.GOT_ocr_2_0'
+93791 INFO: Analyzing hidden import 'paddlex.inference.models.doc_vlm.processors.paddleocr_vl'
+93804 INFO: Analyzing hidden import 'paddlex.modules.base.utils.coco_eval'
+93806 INFO: Analyzing hidden import 'paddlex.modules.base.utils.topk_eval'
+93811 INFO: Analyzing hidden import 'paddlex.ops.setup'
+93813 INFO: Analyzing hidden import 'paddlex.repo_apis.Paddle3D_api'
+93834 INFO: Analyzing hidden import 'paddlex.repo_apis.PaddleClas_api'
+93879 INFO: Analyzing hidden import 'paddlex.repo_apis.PaddleDetection_api'
+93955 INFO: Analyzing hidden import 'paddlex.repo_apis.PaddleNLP_api'
+93956 INFO: Analyzing hidden import 'paddlex.repo_apis.PaddleOCR_api'
+94026 INFO: Analyzing hidden import 'paddlex.repo_apis.PaddleSeg_api'
+94056 INFO: Analyzing hidden import 'paddlex.repo_apis.PaddleTS_api'
+94093 INFO: Analyzing hidden import 'paddlex.repo_apis.PaddleVideo_api'
+94236 INFO: Processing module hooks (post-graph stage)...
+94373 WARNING: Hidden import "ascii__mypyc" not found!
+94374 WARNING: Hidden import "confusion__mypyc" not found!
+94375 WARNING: Hidden import "escape__mypyc" not found!
+94376 WARNING: Hidden import "language__mypyc" not found!
+94377 WARNING: Hidden import "magic__mypyc" not found!
+94378 WARNING: Hidden import "orchestrator__mypyc" not found!
+94379 WARNING: Hidden import "postprocess__mypyc" not found!
+94380 WARNING: Hidden import "statistical__mypyc" not found!
+94381 WARNING: Hidden import "structural__mypyc" not found!
+94382 WARNING: Hidden import "utf1632__mypyc" not found!
+94383 WARNING: Hidden import "utf8__mypyc" not found!
+94384 WARNING: Hidden import "validity__mypyc" not found!
+95489 INFO: Processing standard module hook 'hook-_tkinter.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks'
+95490 INFO: Processing standard module hook 'hook-tzdata.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+96454 INFO: Performing binary vs. data reclassification (6759 entries)
+97939 INFO: Looking for ctypes DLLs
+98384 INFO: Analyzing run-time hooks ...
+98413 INFO: Including run-time hook 'pyi_rth_pkgutil.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+98416 INFO: Including run-time hook 'pyi_rth_multiprocessing.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+98419 INFO: Including run-time hook 'pyi_rth_inspect.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+98421 INFO: Including run-time hook 'pyi_rth_setuptools.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+98424 INFO: Including run-time hook 'pyi_rth__tkinter.py' from 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+98772 INFO: Creating base_library.zip...
+98800 INFO: Looking for dynamic libraries
+E:\AI\test_box\.venv\Lib\site-packages\_distutils_hack\__init__.py:30: UserWarning: Setuptools is replacing distutils. Support for replacing an already imported distutils is deprecated. In the future, this condition will fail. Register concerns at https://github.com/pypa/setuptools/issues/new?template=distutils-deprecation.yml
+  warnings.warn(
+信息: 用提供的模式无法找到文件。
+E:\AI\test_box\.venv\Lib\site-packages\paddle\utils\cpp_extension\extension_utils.py:712: UserWarning: No ccache found. Please be aware that recompiling all source files may be required. You can download and install ccache from: https://github.com/ccache/ccache/blob/master/doc/INSTALL.md
+  warnings.warn(warning_message)
+102807 INFO: Extra DLL search directories (AddDllDirectory): ['E:\\AI\\test_box\\.venv\\Lib\\site-packages\\numpy.libs', 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\pandas.libs', 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\shapely.libs', 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\cv2\\../../x64/vc17/bin', 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\paddle\\base\\..\\libs']
+102807 INFO: Extra DLL search directories (PATH): ['E:\\AI\\test_box\\.venv\\Lib\\site-packages\\paddle\\base', 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\paddle\\base\\..\\libs', 'E:\\AI\\test_box\\.venv\\Lib\\site-packages\\cv2\\../../x64/vc17/bin']
+111436 INFO: Warnings written to E:\AI\test_box\build\TestToolbox\warn-TestToolbox.txt
+112139 INFO: Graph cross-reference written to E:\AI\test_box\build\TestToolbox\xref-TestToolbox.html
+112514 INFO: checking PYZ
+112514 INFO: Building PYZ because PYZ-00.toc is non existent
+112514 INFO: Building PYZ (ZlibArchive) E:\AI\test_box\build\TestToolbox\PYZ-00.pyz
+116132 INFO: Building PYZ (ZlibArchive) E:\AI\test_box\build\TestToolbox\PYZ-00.pyz completed successfully.
+116352 INFO: checking PKG
+116353 INFO: Building PKG because PKG-00.toc is non existent
+116353 INFO: Building PKG (CArchive) TestToolbox.pkg
+181290 INFO: Building PKG (CArchive) TestToolbox.pkg completed successfully.
+181422 INFO: Bootloader E:\AI\test_box\.venv\Lib\site-packages\PyInstaller\bootloader\Windows-64bit-intel\runw.exe
+181422 INFO: checking EXE
+181423 INFO: Building EXE because EXE-00.toc is non existent
+181423 INFO: Building EXE from EXE-00.toc
+181452 INFO: Copying bootloader EXE to E:\AI\test_box\dist\TestToolbox.exe
+181460 INFO: Copying icon to EXE
+181465 INFO: Copying version information to EXE
+181472 INFO: Copying 0 resources to EXE
+181472 INFO: Embedding manifest in EXE
+181477 INFO: Appending PKG archive to EXE
+181680 INFO: Fixing EXE headers
+182948 INFO: Building EXE from EXE-00.toc completed successfully.
+183079 INFO: Build complete! The results are available in: E:\AI\test_box\dist

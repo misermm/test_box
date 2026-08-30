@@ -1878,7 +1878,7 @@ class ToolboxApp(tk.Tk):
 
     def _on_corrupt_changed(self, event=None):
         if self._gen_corrupt_var.get() == "损坏":
-            self._gen_corrupt_method_label.pack(side="left", before=self._gen_corrupt_method_combo)
+            self._gen_corrupt_method_label.pack(side="left")
             self._gen_corrupt_method_combo.pack(side="left", padx=8)
         else:
             self._gen_corrupt_method_combo.pack_forget()
@@ -2343,7 +2343,7 @@ class ToolboxApp(tk.Tk):
         tk.Entry(r1, textvariable=self._http_url_var).pack(
             side="left", padx=4, fill="x", expand=True)
 
-        # === 请求头和请求体横向排列 ===
+        # === 主区域：用 PanedWindow 分割请求区和响应区 ===
         style = ttk.Style()
         style.configure("Treeview", borderwidth=1, relief="solid", fieldbackground="white")
         style.configure("Treeview.Heading", borderwidth=1, relief="solid", padding=4)
@@ -2351,11 +2351,21 @@ class ToolboxApp(tk.Tk):
         style.configure("My.Notebook.Tab", padding=(12, 4), background="#d0d0d0")
         style.map("My.Notebook.Tab", background=[("selected", "#3498db"), ("!selected", "#d0d0d0")],
                   foreground=[("selected", "white"), ("!selected", "black")])
-        hbox = tk.Frame(self.content)
-        hbox.pack(fill="x", pady=(4, 2))
+
+        main_pane = tk.PanedWindow(self.content, orient="vertical", sashrelief="flat",
+                                   bg="#d0d0d0", sashwidth=5, opaqueresize=True)
+        main_pane.pack(fill="both", expand=True, pady=(4, 0))
+
+        # ---- 请求区 ----
+        req_frame = tk.Frame(main_pane, bg="#f5f6fa")
+        main_pane.add(req_frame, minsize=120)
+
+        # 请求头和请求体横向排列
+        hbox = tk.Frame(req_frame, bg="#f5f6fa")
+        hbox.pack(fill="both", expand=True, pady=(0, 4))
 
         # Left: Headers
-        hdr_left = tk.Frame(hbox)
+        hdr_left = tk.Frame(hbox, bg="#f5f6fa")
         hdr_left.pack(side="left", fill="both", expand=True, padx=(0, 2))
         tk.Label(hdr_left, text="请求头 (每行 Key: Value，可空):", bg="#f5f6fa",
                  font=("Microsoft YaHei UI", 10)).pack(anchor="w")
@@ -2389,7 +2399,7 @@ class ToolboxApp(tk.Tk):
         tk.Button(btn_frame, text="删除", command=self._del_hdr_row, width=6).pack(side="top", fill="x", padx=2, expand=True)
 
         # Right: Body
-        body_left = tk.Frame(hbox)
+        body_left = tk.Frame(hbox, bg="#f5f6fa")
         body_left.pack(side="right", fill="both", expand=True, padx=(2, 0))
         tk.Label(body_left, text="请求体 (POST时使用，可空):", bg="#f5f6fa",
                  font=("Microsoft YaHei UI", 10)).pack(anchor="w")
@@ -2418,23 +2428,29 @@ class ToolboxApp(tk.Tk):
         tk.Button(btn_frame2, text="添加", command=self._add_body_row, width=6).pack(side="top", fill="x", padx=2, expand=True)
         tk.Button(btn_frame2, text="删除", command=self._del_body_row, width=6).pack(side="top", fill="x", padx=2, expand=True)
 
-        curl_frame = self._row(self.content)
+        # cURL 导入
+        curl_frame = tk.Frame(req_frame, bg="#f5f6fa")
+        curl_frame.pack(fill="x", pady=(4, 2))
         self._curl_text = tk.Text(curl_frame, height=2, font=("Consolas", 10), wrap="word", bg="white")
         self._curl_text.pack(side="left", fill="x", expand=True, padx=(0, 4))
         tk.Button(curl_frame, text="导入接口", command=self._import_curl,
                   bg="#3498db", fg="white", font=("Microsoft YaHei UI", 10, "bold"), width=10).pack(side="left")
 
-        # === 发送/清空按钮 ===
-        btn_row = self._row(self.content)
+        # 发送/清空按钮
+        btn_row = tk.Frame(req_frame, bg="#f5f6fa")
+        btn_row.pack(fill="x", pady=(4, 0))
         tk.Button(btn_row, text="发送请求", command=self._http_run,
                   bg="#1abc9c", fg="white",
-                  font=("Microsoft YaHei UI", 11, "bold"), width=14).pack(pady=6)
-        tk.Button(btn_row, text="清空响应", command=self._http_clear, width=10).pack(side="left", padx=(10, 0))
+                  font=("Microsoft YaHei UI", 11, "bold"), width=14).pack(side="left", padx=(0, 10))
+        tk.Button(btn_row, text="清空响应", command=self._http_clear, width=10).pack(side="left")
 
-        # === 响应：原始/响应头/响应体切换 ===
-        tk.Label(self.content, text="响应:", bg="#f5f6fa",
-                 font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(4, 3))
-        self._resp_nb = ttk.Notebook(self.content)
+        # ---- 响应区 ----
+        resp_frame = tk.Frame(main_pane, bg="#f5f6fa")
+        main_pane.add(resp_frame, minsize=80)
+
+        tk.Label(resp_frame, text="响应:", bg="#f5f6fa",
+                 font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(0, 3))
+        self._resp_nb = ttk.Notebook(resp_frame)
         self._resp_nb.pack(fill="both", expand=True)
         self._resp_raw_frame = tk.Frame(self._resp_nb)
         self._resp_nb.add(self._resp_raw_frame, text="原始")
