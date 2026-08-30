@@ -1903,6 +1903,16 @@ class ToolboxApp(tk.Tk):
         self._gen_corrupt_method_label.pack(side="left")
         self._gen_corrupt_method_combo.pack(side="left", padx=8)
         self._init_corrupt_tips()  # 悬浮说明：悬停下拉框显示当前损坏方式的中文释义
+        # 输出路径与开始生成按钮（原被误放到 _hide_corrupt_tip 导致每次隐藏提示都重复创建）
+        r3 = self._row(self.content)
+        self._label(r3, "输出路径:").pack(side="left")
+        tk.Entry(r3, textvariable=self._gen_out_var).pack(side="left", padx=8, fill="x", expand=True)
+        tk.Button(r3, text="浏览", command=self._gen_choose_out).pack(side="left")
+
+        btn_row = self._row(self.content)
+        tk.Button(btn_row, text="开始生成", command=self._gen_run,
+                  bg="#1abc9c", fg="white",
+                  font=("Microsoft YaHei UI", 11, "bold"), width=18).pack(pady=(6, 0))
         self._on_corrupt_changed()
 
     def _init_corrupt_tips(self):
