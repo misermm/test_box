@@ -2343,7 +2343,7 @@ class ToolboxApp(tk.Tk):
         tk.Entry(r1, textvariable=self._http_url_var).pack(
             side="left", padx=4, fill="x", expand=True)
 
-# === 请求头和请求体横向排列 ===
+        # === 请求头和请求体横向排列 ===
         style = ttk.Style()
         style.configure("Treeview", borderwidth=1, relief="solid", fieldbackground="white")
         style.configure("Treeview.Heading", borderwidth=1, relief="solid", padding=4)
@@ -2352,7 +2352,7 @@ class ToolboxApp(tk.Tk):
         style.map("My.Notebook.Tab", background=[("selected", "#3498db"), ("!selected", "#d0d0d0")],
                   foreground=[("selected", "white"), ("!selected", "black")])
         hbox = tk.Frame(self.content)
-        hbox.pack(fill="x", expand=True, pady=(4, 2))
+        hbox.pack(fill="x", pady=(4, 2))
 
         # Left: Headers
         hdr_left = tk.Frame(hbox)
