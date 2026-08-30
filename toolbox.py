@@ -1262,7 +1262,7 @@ class ToolboxApp(tk.Tk):
         self.log_frame.pack(fill="both", expand=True, padx=20, pady=(0, 15))
 
         self.log = tk.Text(self.log_frame, height=14, bg="#2d3436", fg="#b2bec3",
-                           font=("Consolas", 9), state="disabled", wrap="word")
+                            font=("Consolas", 9), state="disabled", wrap="word")
         self.log.pack(fill="both", expand=True, padx=5, pady=5)
         self.log.tag_config("ok", foreground="#2ecc71",
                             font=("Microsoft YaHei UI", 12, "bold"))
@@ -1273,6 +1273,14 @@ class ToolboxApp(tk.Tk):
         self.log.bind("<Enter>", lambda e: self.log.focus_set())
         self.log.bind("<MouseWheel>",
                       lambda e: self.log.yview_scroll(-1 * int(e.delta / 120), "units"))
+
+        # 日志底部按钮
+        log_btn_frame = tk.Frame(self.log_frame, bg="#f5f6fa")
+        log_btn_frame.pack(fill="x", padx=5, pady=(0, 5))
+        tk.Button(log_btn_frame, text="清空日志", command=self._log_clear,
+                  width=10).pack(side="left", padx=4)
+        tk.Button(log_btn_frame, text="导出日志", command=self._log_export,
+                  width=10).pack(side="left", padx=4)
 
     # ---------------- 菜单切换 ----------------
     def _build_menu(self, parent):
@@ -1453,6 +1461,38 @@ class ToolboxApp(tk.Tk):
                 self._append_log_text(chunk)
                 self.log.config(state="disabled")
                 self._progress_tail = True
+
+    def _log_clear(self):
+        """清空当前菜单的日志"""
+        self.log.config(state="normal")
+        self.log.delete("1.0", "end")
+        self.log.config(state="disabled")
+        if self._log_owner is not None:
+            self._page_logs.pop(self._log_owner, None)
+
+    def _log_export(self):
+        """导出当前菜单的日志为txt文件"""
+        if self._log_owner is None:
+            self._notify("没有可导出的日志")
+            return
+        content = self._page_logs.get(self._log_owner)
+        if not content or not content.strip():
+            self._notify("当前菜单没有日志可导出")
+            return
+        f = filedialog.asksaveasfilename(
+            title="导出日志",
+            defaultextension=".txt",
+            filetypes=[("文本文件", "*.txt"), ("所有文件", "*.*")],
+            initialdir=_APP_DIR,
+            initialfile=f"log_{self._log_owner}.txt")
+        if not f:
+            return
+        try:
+            with open(f, "w", encoding="utf-8") as fp:
+                fp.write(content)
+            self._notify(f"日志已导出到: {f}")
+        except Exception as e:
+            self._notify(f"导出日志失败: {e}")
 
     def _notify(self, text):
         """用日志代替弹窗提示"""
