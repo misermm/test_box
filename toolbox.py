@@ -1202,6 +1202,10 @@ class ToolboxApp(tk.Tk):
         self._text_len_var = tk.StringVar(value="100")
         self._text_type_var = tk.StringVar(value="汉字+英文+中英文标点")
         self._http_url_var = tk.StringVar(value="https://www.bing.com")
+        # 后台日志（开发用）：记录启动以来的所有日志，级别可调，默认 INFO
+        self._dev_log_records = []          # [(时间, 级别, 内容)]
+        self._dev_log_level = "INFO"
+        self._DEV_LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
 
         # 随机人员信息相关变量
         self._person_data = []
@@ -1387,7 +1391,17 @@ class ToolboxApp(tk.Tk):
             elif index == 7:
                 self._show_page_url()
             elif index == 8:
-                self._show_page_http()
+                # BUG-01: 页面构建异常时不能静默失败（否则界面控件显示不全且无提示）
+                try:
+                    self._show_page_http()
+                except Exception:
+                    # 完整堆栈写入程序同级日志文件，便于离线排查
+                    try:
+                        with open(os.path.join(_APP_DIR, "http_page_build_error.log"), "w", encoding="utf-8") as _ef:
+                            _ef.write(traceback.format_exc())
+                    except Exception:
+                        pass
+                    self.after(0, lambda m="接口请求页面构建失败: " + traceback.format_exc().splitlines()[-1]: self._notify(m))
             elif index == 9:
                 self._show_page_json()
             elif index == 10:
@@ -1404,6 +1418,17 @@ class ToolboxApp(tk.Tk):
         self._restore_log()
 
     # ---------------- 日志 ----------------
+    def _dev_log(self, level, msg):
+        """后台日志：记录启动以来的所有日志信息（供关于页查看）"""
+        try:
+            import datetime
+            ts = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            self._dev_log_records.append((ts, level, msg.replace("\r", "")))
+            if len(self._dev_log_records) > 5000:
+                del self._dev_log_records[:1000]
+        except Exception:
+            pass
+
     def _save_current_log(self):
         if self._log_owner is None:
             return
@@ -1429,6 +1454,9 @@ class ToolboxApp(tk.Tk):
         self.log.config(state="disabled")
 
     def _append_log_text(self, text):
+        # 后台日志同步记录（所有界面日志的汇合点，供关于页查看）
+        level = "DEBUG" if text and not text.endswith("\n") else "INFO"
+        self._dev_log(level, text)
         """追加任务日志：当前显示的就是任务所属页面时写控件，否则写入该页存储"""
         if self._task_page is None or self._log_owner == self._task_page:
             self.log.insert("end", text)
@@ -2342,14 +2370,23 @@ class ToolboxApp(tk.Tk):
         self._label(r1, "URL:").pack(side="left")
         tk.Entry(r1, textvariable=self._http_url_var).pack(
             side="left", padx=4, fill="x", expand=True)
+        # BUG-06: 超时时间可配置
+        self._http_timeout_var = tk.StringVar(value="15")
+        self._label(r1, "超时(秒):").pack(side="left")
+        tk.Entry(r1, textvariable=self._http_timeout_var, width=5).pack(side="left", padx=(4, 0))
 
         # === 主区域：用 PanedWindow 分割请求区和响应区 ===
         style = ttk.Style()
         style.configure("Treeview", borderwidth=1, relief="solid", fieldbackground="white")
         style.configure("Treeview.Heading", borderwidth=1, relief="solid", padding=4)
-        style.configure("My.Notebook", background="#e0e0e0")
-        style.configure("My.Notebook.Tab", padding=(12, 4), background="#d0d0d0")
-        style.map("My.Notebook.Tab", background=[("selected", "#3498db"), ("!selected", "#d0d0d0")],
+        # 标签页选中蓝底白字需要 clam 主题（Windows 默认 vista 主题会忽略 Tab 颜色配置）
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+        style.configure("My.TNotebook", background="#e0e0e0")
+        style.configure("My.TNotebook.Tab", padding=(12, 4), background="#d0d0d0")
+        style.map("My.TNotebook.Tab", background=[("selected", "#3498db"), ("!selected", "#d0d0d0")],
                   foreground=[("selected", "white"), ("!selected", "black")])
 
         main_pane = tk.PanedWindow(self.content, orient="vertical", sashrelief="flat",
@@ -2358,18 +2395,22 @@ class ToolboxApp(tk.Tk):
 
         # ---- 请求区 ----
         req_frame = tk.Frame(main_pane, bg="#f5f6fa")
-        main_pane.add(req_frame, minsize=120)
+        # BUG-01: 显式指定请求区初始高度和更大的 minsize，防止区域被压缩为 0
+        # 导致请求头/请求体/cURL 导入区全部不可见
+        main_pane.add(req_frame, minsize=240, height=340)
 
         # 请求头和请求体横向排列
-        hbox = tk.Frame(req_frame, bg="#f5f6fa")
+        hbox = tk.PanedWindow(req_frame, orient="horizontal", sashrelief="flat",
+                              bg="#d0d0d0", sashwidth=5, opaqueresize=True)  # 各占一半可拖动
         hbox.pack(fill="both", expand=True, pady=(0, 4))
 
         # Left: Headers
         hdr_left = tk.Frame(hbox, bg="#f5f6fa")
-        hdr_left.pack(side="left", fill="both", expand=True, padx=(0, 2))
+        hbox.add(hdr_left, minsize=200, width=400, stretch="always")
         tk.Label(hdr_left, text="请求头 (每行 Key: Value，可空):", bg="#f5f6fa",
                  font=("Microsoft YaHei UI", 10)).pack(anchor="w")
-        self._headers_nb = ttk.Notebook(hdr_left, style="My.Notebook")
+        self._headers_nb = ttk.Notebook(hdr_left, style="My.TNotebook")
+        # 构建探针：延迟上报，避免被 _restore_log 覆盖
         self._headers_nb.pack(fill="both", expand=True)
         self._hdr_text_frame = tk.Frame(self._headers_nb)
         self._headers_nb.add(self._hdr_text_frame, text="文本")
@@ -2395,15 +2436,16 @@ class ToolboxApp(tk.Tk):
         self._hdr_tree.bind("<Double-1>", self._on_hdr_tree_double_click)
         btn_frame = tk.Frame(self._hdr_table_frame)
         btn_frame.pack(side="bottom", fill="x", pady=2)
-        tk.Button(btn_frame, text="添加", command=self._add_hdr_row, width=6).pack(side="top", fill="x", padx=2, expand=True)
-        tk.Button(btn_frame, text="删除", command=self._del_hdr_row, width=6).pack(side="top", fill="x", padx=2, expand=True)
+        tk.Button(btn_frame, text="添加", command=self._add_hdr_row, width=6).pack(side="left", fill="x", padx=2, expand=True)
+        tk.Button(btn_frame, text="删除", command=self._del_hdr_row, width=6).pack(side="left", fill="x", padx=2, expand=True)
 
         # Right: Body
+        self.after(0, lambda m="[构建] 请求头区完成": self._notify(m))
         body_left = tk.Frame(hbox, bg="#f5f6fa")
-        body_left.pack(side="right", fill="both", expand=True, padx=(2, 0))
+        hbox.add(body_left, minsize=200, width=400, stretch="always")
         tk.Label(body_left, text="请求体 (POST时使用，可空):", bg="#f5f6fa",
                  font=("Microsoft YaHei UI", 10)).pack(anchor="w")
-        self._body_nb = ttk.Notebook(body_left, style="My.Notebook")
+        self._body_nb = ttk.Notebook(body_left, style="My.TNotebook")
         self._body_nb.pack(fill="both", expand=True)
         self._body_text_frame = tk.Frame(self._body_nb)
         self._body_nb.add(self._body_text_frame, text="文本")
@@ -2425,10 +2467,11 @@ class ToolboxApp(tk.Tk):
         self._body_tree.bind("<Double-1>", self._on_body_tree_double_click)
         btn_frame2 = tk.Frame(self._body_table_frame)
         btn_frame2.pack(side="bottom", fill="x", pady=2)
-        tk.Button(btn_frame2, text="添加", command=self._add_body_row, width=6).pack(side="top", fill="x", padx=2, expand=True)
-        tk.Button(btn_frame2, text="删除", command=self._del_body_row, width=6).pack(side="top", fill="x", padx=2, expand=True)
+        tk.Button(btn_frame2, text="添加", command=self._add_body_row, width=6).pack(side="left", fill="x", padx=2, expand=True)
+        tk.Button(btn_frame2, text="删除", command=self._del_body_row, width=6).pack(side="left", fill="x", padx=2, expand=True)
 
         # cURL 导入
+        self.after(0, lambda m="[构建] 请求体区完成": self._notify(m))
         curl_frame = tk.Frame(req_frame, bg="#f5f6fa")
         curl_frame.pack(fill="x", pady=(4, 2))
         self._curl_text = tk.Text(curl_frame, height=2, font=("Consolas", 10), wrap="word", bg="white")
@@ -2437,6 +2480,7 @@ class ToolboxApp(tk.Tk):
                   bg="#3498db", fg="white", font=("Microsoft YaHei UI", 10, "bold"), width=10).pack(side="left")
 
         # 发送/清空按钮
+        self.after(0, lambda m="[构建] cURL导入区完成": self._notify(m))
         btn_row = tk.Frame(req_frame, bg="#f5f6fa")
         btn_row.pack(fill="x", pady=(4, 0))
         tk.Button(btn_row, text="发送请求", command=self._http_run,
@@ -2445,8 +2489,9 @@ class ToolboxApp(tk.Tk):
         tk.Button(btn_row, text="清空响应", command=self._http_clear, width=10).pack(side="left")
 
         # ---- 响应区 ----
+        self.after(0, lambda m="[构建] 发送按钮区完成": self._notify(m))
         resp_frame = tk.Frame(main_pane, bg="#f5f6fa")
-        main_pane.add(resp_frame, minsize=80)
+        main_pane.add(resp_frame, minsize=140, height=220)  # BUG-01: 保证响应区有可见高度
 
         tk.Label(resp_frame, text="响应:", bg="#f5f6fa",
                  font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(0, 3))
@@ -2467,6 +2512,7 @@ class ToolboxApp(tk.Tk):
         self._http_body_output = tk.Text(self._resp_body_frame, font=("Consolas", 10),
                                           wrap="word", bg="white")
         self._http_body_output.pack(fill="both", expand=True)
+        self.after(0, lambda m="[构建] 接口请求页面全部构建完成": self._notify(m))
 
     def _add_hdr_row(self):
         self._hdr_tree.insert("", "end", values=("", ""))
@@ -2539,11 +2585,20 @@ class ToolboxApp(tk.Tk):
             k, v = line.split(":", 1)
             tree.insert("", "end", values=(k.strip(), v.strip()))
 
+    def _nb_selected_index(self, nb):
+        """容错获取 Notebook 当前选中页索引（控件未就绪时返回 -1）"""
+        try:
+            return nb.index(nb.select())
+        except tk.TclError:
+            return -1
+
     def _sync_tree_to_text(self, tree, text_widget):
         lines = []
         for item in tree.get_children():
-            k = item.text("key") if hasattr(item, 'text') else tree.item(item, "values")[0]
-            v = tree.item(item, "values")[1] if len(tree.item(item, "values")) > 1 else ""
+            # BUG-02: 移除无效的 item.text() 判断，统一用 tree.item 取值
+            values = tree.item(item, "values")
+            k = values[0] if values else ""
+            # v 取自上方 values（BUG-02 清理）
             lines.append(f"{k}: {v}")
         text_widget.delete("1.0", "end")
         text_widget.insert("1.0", "\n".join(lines))
@@ -2560,7 +2615,7 @@ class ToolboxApp(tk.Tk):
             has_data = False
             url = ""
             headers = []
-            body = None
+            body_parts = []  # BUG-03: 多个 -d 参数收集后用 & 拼接
             # 匹配 -X/--request 方法
             m = re.search(r'-(?:X|request)\s+(\w+)', curl, re.IGNORECASE)
             if m:
@@ -2571,8 +2626,9 @@ class ToolboxApp(tk.Tk):
                 if bval:
                     if bval.startswith(("'", '"')) and bval.endswith(("'", '"')):
                         bval = bval[1:-1]
-                    body = bval
+                    body_parts.append(bval)
                     has_data = True
+            body = "&".join(body_parts) if body_parts else None
             if has_data and method == "GET":
                 method = "POST"
             # 匹配 -H/--header 请求头（支持单双引号包裹）
@@ -2585,7 +2641,7 @@ class ToolboxApp(tk.Tk):
             if not url_match:
                 url_match = re.search(r"(https?://\S+)", curl)
             if url_match:
-                url = url_match.group(1)
+                url = url_match.group(1).strip("\"'")  # BUG-03: 去掉尾部误带入的引号
             self._http_url_var.set(url)
             if method:
                 self._http_method_var.set(method)
@@ -2608,10 +2664,10 @@ class ToolboxApp(tk.Tk):
             self._notify("请输入URL")
             return
         method = self._http_method_var.get()
-        if self._headers_nb.index(self._headers_nb.select()) == 1:
+        if self._nb_selected_index(self._headers_nb) == 1:
             self._sync_tree_to_text(self._hdr_tree, self._http_headers_text)
         headers_raw = self._http_headers_text.get("1.0", "end-1c")
-        if self._body_nb.index(self._body_nb.select()) == 1:
+        if self._nb_selected_index(self._body_nb) == 1:
             self._sync_tree_to_text(self._body_tree, self._http_body_text)
         body = self._http_body_text.get("1.0", "end-1c").strip() or None
         try:
@@ -2619,11 +2675,17 @@ class ToolboxApp(tk.Tk):
         except ValueError as e:
             self._notify(str(e))
             return
-        self._start_task(self._http_send, method, url, headers, body,
+        try:
+            timeout = float(self._http_timeout_var.get().strip() or 15)
+            if timeout <= 0:
+                timeout = 15
+        except (ValueError, AttributeError):
+            timeout = 15
+        self._start_task(self._http_send, method, url, headers, body, timeout,
                          on_done=self._http_done)
 
-    def _http_send(self, method, url, headers, body):
-        resp = send_request(method, url, headers=headers, body=body)
+    def _http_send(self, method, url, headers, body, timeout=15):
+        resp = send_request(method, url, headers=headers, body=body, timeout=timeout)
         return resp
 
     def _http_done(self, resp):
@@ -2631,12 +2693,20 @@ class ToolboxApp(tk.Tk):
             self._log_result_banner(False)
             return
         self._http_output.delete("1.0", "end")
-        self._http_output.insert("1.0", format_response(resp))
+        # BUG-07: 响应过大时截断，避免卡死 UI
+        raw_text = format_response(resp)
+        if len(raw_text) > 200000:
+            raw_text = raw_text[:200000] + f"\n...[内容过长已截断，完整共 {len(raw_text)} 字符]"
+        self._http_output.insert("1.0", raw_text)
         headers_text = "\n".join(f"{k}: {v}" for k, v in resp.get("headers", {}).items())
         self._http_headers_output.delete("1.0", "end")
         self._http_headers_output.insert("1.0", headers_text)
         self._http_body_output.delete("1.0", "end")
-        self._http_body_output.insert("1.0", resp.get("body", ""))
+        # BUG-07: 响应体过大时截断
+        body_text = resp.get("body", "")
+        if len(body_text) > 200000:
+            body_text = body_text[:200000] + f"\n...[响应体过长已截断，完整共 {len(body_text)} 字符]"
+        self._http_body_output.insert("1.0", body_text)
         self._log_result_banner(True)
 
     def _http_clear(self):
@@ -3468,6 +3538,54 @@ class ToolboxApp(tk.Tk):
         lbl = tk.Label(self.content, text=info, bg="#f5f6fa", fg="#2c3e50",
                        font=("Microsoft YaHei UI", 11), justify="left", anchor="w")
         lbl.pack(anchor="nw", pady=(10, 0))
+
+        # ---- 后台日志查看（开发调试用）----
+        bar = tk.Frame(self.content, bg="#f5f6fa")
+        bar.pack(fill="x", pady=(8, 2))
+        tk.Label(bar, text="日志级别:", bg="#f5f6fa",
+                 font=("Microsoft YaHei UI", 10)).pack(side="left")
+        self._dev_log_level_var = tk.StringVar(value=self._dev_log_level)
+        ttk.Combobox(bar, textvariable=self._dev_log_level_var, state="readonly",
+                     values=self._DEV_LOG_LEVELS, width=8).pack(side="left", padx=(4, 10))
+
+        def _refresh_dev_log(_e=None):
+            self._dev_log_level = self._dev_log_level_var.get()
+            order = {lv: i for i, lv in enumerate(self._DEV_LOG_LEVELS)}
+            min_idx = order.get(self._dev_log_level, 1)
+            self._dev_log_text.config(state="normal")
+            self._dev_log_text.delete("1.0", "end")
+            for ts, lv, msg in self._dev_log_records:
+                if order.get(lv, 1) >= min_idx:
+                    self._dev_log_text.insert("end", f"[{ts}] [{lv}] {msg}\n")
+            self._dev_log_text.see("end")
+            self._dev_log_text.config(state="disabled")
+
+        self._refresh_dev_log = _refresh_dev_log
+        tk.Button(bar, text="刷新", command=_refresh_dev_log, width=8).pack(side="left")
+
+        def _clear_dev_log():
+            self._dev_log_records.clear()
+            _refresh_dev_log()
+
+        tk.Button(bar, text="清空", command=_clear_dev_log, width=8).pack(side="left", padx=(6, 0))
+
+        def _export_dev_log():
+            from tkinter import filedialog
+            p = filedialog.asksaveasfilename(defaultextension=".log",
+                                             initialfile="dev_log.log",
+                                             filetypes=[("日志文件", "*.log"), ("所有文件", "*.*")])
+            if p:
+                with open(p, "w", encoding="utf-8") as f:
+                    for ts, lv, msg in self._dev_log_records:
+                        f.write(f"[{ts}] [{lv}] {msg}\n")
+                self._notify(f"后台日志已导出: {p}")
+
+        tk.Button(bar, text="导出", command=_export_dev_log, width=8).pack(side="left", padx=(6, 0))
+
+        self._dev_log_text = tk.Text(self.content, height=14, font=("Consolas", 9),
+                                     wrap="word", bg="white")
+        self._dev_log_text.pack(fill="both", expand=True, pady=(2, 0))
+        _refresh_dev_log()
 
     # ---------------- 退出 ----------------
     def _setup_menu_bar(self):

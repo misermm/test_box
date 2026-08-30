@@ -10,12 +10,12 @@ import urllib.error
 def parse_headers(text):
     """将 'Key: Value' 每行一个 的文本解析为dict，空文本返回None"""
     headers = {}
-    for line in text.splitlines():
-        line = line.strip()
+    for lineno, raw_line in enumerate(text.splitlines(), 1):
+        line = raw_line.strip()
         if not line:
             continue
         if ":" not in line:
-            raise ValueError(f"请求头格式错误（应为 Key: Value）: {line}")
+            raise ValueError(f"请求头第 {lineno} 行格式错误（应为 Key: Value）: {line}")
         k, v = line.split(":", 1)
         headers[k.strip()] = v.strip()
     return headers or None
@@ -45,7 +45,15 @@ def send_request(method, url, headers=None, body=None, timeout=15):
         for k, v in headers.items():
             req.add_header(k, v)
     if data and not (headers and any(k.lower() == "content-type" for k in headers)):
-        req.add_header("Content-Type", "application/x-www-form-urlencoded")
+        # BUG-05: body 是合法 JSON 时默认用 application/json，避免被服务端误解
+        default_ct = "application/x-www-form-urlencoded"
+        if body and body.lstrip()[:1] in ("{", "["):
+            try:
+                json.loads(body)
+                default_ct = "application/json"
+            except ValueError:
+                pass
+        req.add_header("Content-Type", default_ct)
 
     start = time.time()
     try:
@@ -58,6 +66,12 @@ def send_request(method, url, headers=None, body=None, timeout=15):
         raw = e.read()
         status = e.code
         resp_headers = dict(e.headers.items())
+    except urllib.error.URLError as e:
+        # BUG-06: 超时给出友好提示，与一般网络错误区分
+        reason = getattr(e, "reason", e)
+        if isinstance(reason, TimeoutError) or "timed out" in str(reason).lower() or "timeout" in str(reason).lower():
+            raise ValueError(f"请求超时（{timeout} 秒无响应），可在界面\"超时(秒)\"中调大后重试") from e
+        raise
     elapsed = time.time() - start
 
     charset = None
