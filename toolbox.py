@@ -1370,10 +1370,13 @@ class ToolboxApp(tk.Tk):
         self.title_label.config(text=self._page_title(index))
 
         frame = self._page_frames.get(index)
-        if frame is None:
+        if True:  # fix: 每次进入都重建页面，避免构建失败后缓存半成品导致重复控件堆叠
             frame = tk.Frame(self.page_container, bg="#f5f6fa")
             self._page_frames[index] = frame
             self.content = frame
+            # 修复：页面构建中途失败后重进会重复堆叠控件（如生成页重复的输出路径行），每次进入前先清空旧内容
+            for _w in list(frame.winfo_children()):
+                _w.destroy()
             if index == 0:
                 self._show_page_pdf()
             elif index == 1:
@@ -1412,6 +1415,9 @@ class ToolboxApp(tk.Tk):
                 self._show_page_about()
         else:
             self.content = frame
+            # 修复：页面构建中途失败后重进会重复堆叠控件（如生成页重复的输出路径行），每次进入前先清空旧内容
+            for _w in list(frame.winfo_children()):
+                _w.destroy()
 
         frame.pack(fill="both", expand=True)
 
@@ -1433,6 +1439,10 @@ class ToolboxApp(tk.Tk):
         if self._log_owner is None:
             return
         content = self.log.get("1.0", "end-1c")
+        # 过滤：各功能页日志只保留菜单操作产生的信息，剔除启动/加载/构建类信息（完整记录在关于页后台日志）
+        _noise = ("[构建]", "迁移", "storage", "加载", "初始化", "[启动]")
+        content = "\n".join(
+            ln for ln in content.splitlines() if not any(k in ln for k in _noise))
         if content.strip():
             self._page_logs[self._log_owner] = content
         else:
@@ -1892,7 +1902,61 @@ class ToolboxApp(tk.Tk):
                      values=corrupt_method_values, width=15)
         self._gen_corrupt_method_label.pack(side="left")
         self._gen_corrupt_method_combo.pack(side="left", padx=8)
+        self._init_corrupt_tips()  # 悬浮说明：悬停下拉框显示当前损坏方式的中文释义
         self._on_corrupt_changed()
+
+    def _init_corrupt_tips(self):
+        """损坏方式下拉框的悬浮说明（悬停时显示当前选中方式的中文释义）"""
+        self._CORRUPT_TIPS = {
+            "header_tail": "覆盖头部和尾部：用随机数据改写文件开头和结尾各约4KB，破坏文件格式标识，文件无法正常打开",
+            "header_only": "仅覆盖头部：只改写文件开头约4KB，破坏格式头信息（如ZIP/PDF魔数），文件大小不变",
+            "tail_only": "仅覆盖尾部：只改写文件结尾约4KB，破坏文件结尾的校验/索引结构（如ZIP中央目录）",
+            "random_positions": "随机位置覆盖：在文件中随机挑几处位置写入垃圾数据，局部损坏，部分内容可能仍可读",
+            "full_random": "全部随机覆盖：整个文件内容全部替换为随机垃圾数据，完全不可恢复",
+            "truncate": "截断文件：把文件砍掉一部分只剩前半段，文件变小，数据缺失",
+            "zero_fill": "全部清零：整个文件内容全部写成0，大小不变但内容全空",
+        }
+        self._corrupt_tip_win = None
+        # 选中后在下拉框后面直接显示中文简述
+        self._corrupt_tip_label = tk.Label(self._gen_corrupt_method_combo.master, text="", bg="#f5f6fa", fg="#555555",
+                                           font=("Microsoft YaHei UI", 9))
+
+        def _update_tip_label(_e=None):
+            method = self._gen_corrupt_method_var.get()
+            tip = self._CORRUPT_TIPS.get(method, "")
+            self._corrupt_tip_label.config(text=tip.split("：")[0] if tip else "")
+        self._corrupt_tip_label.pack(side="left", padx=(0, 8))
+        self._update_corrupt_tip_label = _update_tip_label
+        _update_tip_label()
+
+        self._gen_corrupt_method_combo.bind("<<ComboboxSelected>>", _update_tip_label, add="+")
+        _update_tip_label()
+        self._gen_corrupt_method_combo.bind("<Enter>", self._show_corrupt_tip)
+        self._gen_corrupt_method_combo.bind("<Leave>", self._hide_corrupt_tip)
+
+    def _show_corrupt_tip(self, event=None):
+        try:
+            method = self._gen_corrupt_method_var.get()
+            tip = self._CORRUPT_TIPS.get(method, method)
+            self._hide_corrupt_tip()
+            x = self.winfo_rootx() + self.winfo_pointerx() - self.winfo_rootx() + 16
+            y = self.winfo_rooty() + self.winfo_pointery() - self.winfo_rooty() + 16
+            self._corrupt_tip_win = tw = tk.Toplevel(self)
+            tw.wm_overrideredirect(True)
+            tw.wm_geometry(f"+{x}+{y}")
+            tk.Label(tw, text=f"{method}: {tip}", bg="#ffffe0", fg="#333333",
+                     relief="solid", borderwidth=1, justify="left", wraplength=380,
+                     font=("Microsoft YaHei UI", 9), padx=6, pady=4).pack()
+        except Exception:
+            pass
+
+    def _hide_corrupt_tip(self, event=None):
+        try:
+            if self._corrupt_tip_win is not None:
+                self._corrupt_tip_win.destroy()
+                self._corrupt_tip_win = None
+        except Exception:
+            self._corrupt_tip_win = None
 
         r3 = self._row(self.content)
         self._label(r3, "输出路径:").pack(side="left")
@@ -1908,9 +1972,15 @@ class ToolboxApp(tk.Tk):
         if self._gen_corrupt_var.get() == "损坏":
             self._gen_corrupt_method_label.pack(side="left")
             self._gen_corrupt_method_combo.pack(side="left", padx=8)
+            if hasattr(self, "_corrupt_tip_label"):
+                self._corrupt_tip_label.pack(side="left", padx=(0, 8))
+                if hasattr(self, "_update_corrupt_tip_label"):
+                    self._update_corrupt_tip_label()
         else:
             self._gen_corrupt_method_combo.pack_forget()
             self._gen_corrupt_method_label.pack_forget()
+            if hasattr(self, "_corrupt_tip_label"):
+                self._corrupt_tip_label.pack_forget()
 
     def _gen_choose_out(self):
         d = filedialog.askdirectory(title="选择输出路径", initialdir=self._gen_out_var.get())
@@ -2435,7 +2505,7 @@ class ToolboxApp(tk.Tk):
         self._hdr_tree.configure(yscrollcommand=hdr_scroll.set)
         self._hdr_tree.bind("<Double-1>", self._on_hdr_tree_double_click)
         btn_frame = tk.Frame(self._hdr_table_frame)
-        btn_frame.pack(side="bottom", fill="x", pady=2)
+        btn_frame.pack(side="bottom", fill="x", pady=2, before=self._hdr_tree)  # 先保留按钮空间，缩小窗口时不被挤掉
         tk.Button(btn_frame, text="添加", command=self._add_hdr_row, width=6).pack(side="left", fill="x", padx=2, expand=True)
         tk.Button(btn_frame, text="删除", command=self._del_hdr_row, width=6).pack(side="left", fill="x", padx=2, expand=True)
 
@@ -2466,7 +2536,7 @@ class ToolboxApp(tk.Tk):
         self._body_tree.configure(yscrollcommand=body_scroll.set)
         self._body_tree.bind("<Double-1>", self._on_body_tree_double_click)
         btn_frame2 = tk.Frame(self._body_table_frame)
-        btn_frame2.pack(side="bottom", fill="x", pady=2)
+        btn_frame2.pack(side="bottom", fill="x", pady=2, before=self._body_tree)  # 先保留按钮空间，缩小窗口时不被挤掉
         tk.Button(btn_frame2, text="添加", command=self._add_body_row, width=6).pack(side="left", fill="x", padx=2, expand=True)
         tk.Button(btn_frame2, text="删除", command=self._del_body_row, width=6).pack(side="left", fill="x", padx=2, expand=True)
 
