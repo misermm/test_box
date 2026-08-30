@@ -1198,7 +1198,7 @@ class ToolboxApp(tk.Tk):
         self._gen_out_var = tk.StringVar(value=DEFAULT_DATA)
         self._text_len_var = tk.StringVar(value="100")
         self._text_type_var = tk.StringVar(value="汉字+英文+中英文标点")
-        self._http_url_var = tk.StringVar()
+        self._http_url_var = tk.StringVar(value="https://www.bing.com")
 
         # 随机人员信息相关变量
         self._person_data = []
