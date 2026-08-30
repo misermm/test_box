@@ -2472,6 +2472,8 @@ class ToolboxApp(tk.Tk):
         text_widget.insert("1.0", "\n".join(lines))
 
     def _import_curl(self):
+        """导入cURL命令，解析URL、方法、请求头和请求体"""
+        import re
         curl = self._curl_text.get("1.0", "end-1c").strip()
         if not curl:
             self._notify("请输入cURL命令")
@@ -2481,29 +2483,28 @@ class ToolboxApp(tk.Tk):
             url = ""
             headers = []
             body = None
-            parts = curl.split()
-            i = 0
-            while i < len(parts):
-                p = parts[i]
-                if p in ("-X", "--request") and i + 1 < len(parts):
-                    method = parts[i + 1].upper()
-                    i += 2
-                elif p in ("-H", "--header") and i + 1 < len(parts):
-                    headers.append(parts[i + 1].strip("\"'"))
-                    i += 2
-                elif p in ("-d", "--data", "--data-raw") and i + 1 < len(parts):
-                    body = parts[i + 1]
-                    if body.startswith(("'", '"')) and body.endswith(("'", '"')):
-                        body = body[1:-1]
-                    i += 2
-                elif p.startswith("-"):
-                    i += 1
-                else:
-                    if not url:
-                        url = p
-                    i += 1
-            if url.startswith(("'", '"')):
-                url = url[1:-1]
+            # 匹配 -X/--request 方法
+            m = re.search(r'-(?:X|request)\s+(\w+)', curl, re.IGNORECASE)
+            if m:
+                method = m.group(1).upper()
+            # 匹配 -H/--header 请求头（支持单双引号包裹）
+            for hm in re.finditer(r'-(?:H|header)\s+([\'"]?)(.*?)\1(?=\s|$)', curl, re.IGNORECASE):
+                hval = hm.group(2).strip()
+                if hval:
+                    headers.append(hval)
+            # 匹配 -d/--data/--data-raw 请求体（支持单双引号包裹和多词值）
+            for dm in re.finditer(r'-(?:d|data|data-raw)\s+([\'"]?)(.*?)\1', curl, re.IGNORECASE):
+                bval = dm.group(2).strip()
+                if bval:
+                    if bval.startswith(("'", '"')) and bval.endswith(("'", '"')):
+                        bval = bval[1:-1]
+                    body = bval
+            # 提取 URL（第一个非 - 开头的参数，或 -o/-url 后的值）
+            url_match = re.search(r'"(https?://[^"]+)"', curl)
+            if not url_match:
+                url_match = re.search(r"(https?://\S+)", curl)
+            if url_match:
+                url = url_match.group(1)
             self._http_url_var.set(url)
             if method in ("GET", "POST"):
                 self._http_method_var.set(method)
