@@ -2300,33 +2300,185 @@ class ToolboxApp(tk.Tk):
         tk.Entry(r1, textvariable=self._http_url_var).pack(
             side="left", padx=4, fill="x", expand=True)
 
+        # === 请求头：文本/表格切换 ===
         tk.Label(self.content, text="请求头 (每行 Key: Value，可空):", bg="#f5f6fa",
                  font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(4, 2))
-        self._http_headers_text = tk.Text(self.content, height=4, font=("Consolas", 10),
-                                          wrap="word", bg="white")
-        self._http_headers_text.pack(fill="x")
+        self._headers_nb = ttk.Notebook(self.content)
+        self._headers_nb.pack(fill="x")
+        self._hdr_text_frame = tk.Frame(self._headers_nb)
+        self._headers_nb.add(self._hdr_text_frame, text="文本")
+        self._http_headers_text = tk.Text(self._hdr_text_frame, height=4, font=("Consolas", 10),
+                                           wrap="word", bg="white")
+        self._http_headers_text.pack(fill="both", expand=True)
         self._http_headers_text.insert("1.0",
             "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36\n"
             "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8\n"
             "Accept-Language: zh-CN,zh;q=0.9,en;q=0.8")
+        self._hdr_table_frame = tk.Frame(self._headers_nb)
+        self._headers_nb.add(self._hdr_table_frame, text="表格")
+        self._hdr_tree = ttk.Treeview(self._hdr_table_frame, columns=("key", "value"), show="headings",
+                                       height=4)
+        self._hdr_tree.heading("key", text="Key")
+        self._hdr_tree.heading("value", text="Value")
+        self._hdr_tree.column("key", width=180)
+        self._hdr_tree.column("value", width=300)
+        self._hdr_tree.pack(fill="both", expand=True, side="left")
+        hdr_scroll = ttk.Scrollbar(self._hdr_table_frame, orient="vertical", command=self._hdr_tree.yview)
+        hdr_scroll.pack(side="right", fill="y")
+        self._hdr_tree.configure(yscrollcommand=hdr_scroll.set)
+        btn_frame = tk.Frame(self._hdr_table_frame)
+        btn_frame.pack(side="bottom", fill="x", pady=2)
+        tk.Button(btn_frame, text="添加", command=self._add_hdr_row, width=6).pack(side="left", padx=2)
+        tk.Button(btn_frame, text="删除", command=self._del_hdr_row, width=6).pack(side="left", padx=2)
 
+        # === 请求体：文本/表格切换 ===
         tk.Label(self.content, text="请求体 (POST时使用，可空):", bg="#f5f6fa",
                  font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(4, 2))
-        self._http_body_text = tk.Text(self.content, height=4, font=("Consolas", 10),
-                                       wrap="word", bg="white")
-        self._http_body_text.pack(fill="x")
+        self._body_nb = ttk.Notebook(self.content)
+        self._body_nb.pack(fill="x")
+        self._body_text_frame = tk.Frame(self._body_nb)
+        self._body_nb.add(self._body_text_frame, text="文本")
+        self._http_body_text = tk.Text(self._body_text_frame, height=4, font=("Consolas", 10),
+                                        wrap="word", bg="white")
+        self._http_body_text.pack(fill="both", expand=True)
+        self._body_table_frame = tk.Frame(self._body_nb)
+        self._body_nb.add(self._body_table_frame, text="表格")
+        self._body_tree = ttk.Treeview(self._body_table_frame, columns=("key", "value"), show="headings",
+                                        height=4)
+        self._body_tree.heading("key", text="Key")
+        self._body_tree.heading("value", text="Value")
+        self._body_tree.column("key", width=180)
+        self._body_tree.column("value", width=300)
+        self._body_tree.pack(fill="both", expand=True, side="left")
+        body_scroll = ttk.Scrollbar(self._body_table_frame, orient="vertical", command=self._body_tree.yview)
+        body_scroll.pack(side="right", fill="y")
+        self._body_tree.configure(yscrollcommand=body_scroll.set)
+        btn_frame2 = tk.Frame(self._body_table_frame)
+        btn_frame2.pack(side="bottom", fill="x", pady=2)
+        tk.Button(btn_frame2, text="添加", command=self._add_body_row, width=6).pack(side="left", padx=2)
+        tk.Button(btn_frame2, text="删除", command=self._del_body_row, width=6).pack(side="left", padx=2)
 
+        # === 导入cURL ===
+        tk.Label(self.content, text="导入cURL (粘贴curl命令后点击导入):", bg="#f5f6fa",
+                 font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(6, 2))
+        curl_frame = self._row(self.content)
+        self._curl_text = tk.Text(curl_frame, height=2, font=("Consolas", 10), wrap="word", bg="white")
+        self._curl_text.pack(side="left", fill="x", expand=True, padx=(0, 4))
+        tk.Button(curl_frame, text="导入接口", command=self._import_curl,
+                  bg="#3498db", fg="white", font=("Microsoft YaHei UI", 10, "bold"), width=10).pack(side="left")
+
+        # === 发送/清空按钮 ===
         btn_row = self._row(self.content)
         tk.Button(btn_row, text="发送请求", command=self._http_run,
                   bg="#1abc9c", fg="white",
                   font=("Microsoft YaHei UI", 11, "bold"), width=14).pack(pady=6)
         tk.Button(btn_row, text="清空响应", command=self._http_clear, width=10).pack(side="left", padx=(10, 0))
 
+        # === 响应：原始/响应头/响应体切换 ===
         tk.Label(self.content, text="响应:", bg="#f5f6fa",
                  font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=(4, 3))
-        self._http_output = tk.Text(self.content, height=10, font=("Consolas", 10),
-                                    wrap="word", bg="white")
+        self._resp_nb = ttk.Notebook(self.content)
+        self._resp_nb.pack(fill="both", expand=True)
+        self._resp_raw_frame = tk.Frame(self._resp_nb)
+        self._resp_nb.add(self._resp_raw_frame, text="原始")
+        self._http_output = tk.Text(self._resp_raw_frame, font=("Consolas", 10),
+                                     wrap="word", bg="white")
         self._http_output.pack(fill="both", expand=True)
+        self._resp_headers_frame = tk.Frame(self._resp_nb)
+        self._resp_nb.add(self._resp_headers_frame, text="响应头")
+        self._http_headers_output = tk.Text(self._resp_headers_frame, font=("Consolas", 10),
+                                              wrap="word", bg="white")
+        self._http_headers_output.pack(fill="both", expand=True)
+        self._resp_body_frame = tk.Frame(self._resp_nb)
+        self._resp_nb.add(self._resp_body_frame, text="响应体")
+        self._http_body_output = tk.Text(self._resp_body_frame, font=("Consolas", 10),
+                                          wrap="word", bg="white")
+        self._http_body_output.pack(fill="both", expand=True)
+
+    def _add_hdr_row(self):
+        self._hdr_tree.insert("", "end", values=("", ""))
+
+    def _del_hdr_row(self):
+        sel = self._hdr_tree.selection()
+        for item in sel:
+            self._hdr_tree.delete(item)
+
+    def _add_body_row(self):
+        self._body_tree.insert("", "end", values=("", ""))
+
+    def _del_body_row(self):
+        sel = self._body_tree.selection()
+        for item in sel:
+            self._body_tree.delete(item)
+
+    def _sync_text_to_tree(self, tree, text_widget):
+        for item in tree.get_children():
+            tree.delete(item)
+        text = text_widget.get("1.0", "end-1c")
+        for line in text.splitlines():
+            line = line.strip()
+            if not line or ":" not in line:
+                continue
+            k, v = line.split(":", 1)
+            tree.insert("", "end", values=(k.strip(), v.strip()))
+
+    def _sync_tree_to_text(self, tree, text_widget):
+        lines = []
+        for item in tree.get_children():
+            k = item.text("key") if hasattr(item, 'text') else tree.item(item, "values")[0]
+            v = tree.item(item, "values")[1] if len(tree.item(item, "values")) > 1 else ""
+            lines.append(f"{k}: {v}")
+        text_widget.delete("1.0", "end")
+        text_widget.insert("1.0", "\n".join(lines))
+
+    def _import_curl(self):
+        curl = self._curl_text.get("1.0", "end-1c").strip()
+        if not curl:
+            self._notify("请输入cURL命令")
+            return
+        try:
+            method = "GET"
+            url = ""
+            headers = []
+            body = None
+            parts = curl.split()
+            i = 0
+            while i < len(parts):
+                p = parts[i]
+                if p in ("-X", "--request") and i + 1 < len(parts):
+                    method = parts[i + 1].upper()
+                    i += 2
+                elif p in ("-H", "--header") and i + 1 < len(parts):
+                    headers.append(parts[i + 1].strip("\"'"))
+                    i += 2
+                elif p in ("-d", "--data", "--data-raw") and i + 1 < len(parts):
+                    body = parts[i + 1]
+                    if body.startswith(("'", '"')) and body.endswith(("'", '"')):
+                        body = body[1:-1]
+                    i += 2
+                elif p.startswith("-"):
+                    i += 1
+                else:
+                    if not url:
+                        url = p
+                    i += 1
+            if url.startswith(("'", '"')):
+                url = url[1:-1]
+            self._http_url_var.set(url)
+            if method in ("GET", "POST"):
+                self._http_method_var.set(method)
+            self._http_headers_text.delete("1.0", "end")
+            htext = "\n".join(headers)
+            if htext:
+                self._http_headers_text.insert("1.0", htext + "\n")
+            self._sync_text_to_tree(self._hdr_tree, self._http_headers_text)
+            if body:
+                self._http_body_text.delete("1.0", "end")
+                self._http_body_text.insert("1.0", body)
+                self._sync_text_to_tree(self._body_tree, self._http_body_text)
+            self._notify("cURL导入成功")
+        except Exception as e:
+            self._notify(f"cURL解析失败: {e}")
 
     def _http_run(self):
         url = self._http_url_var.get().strip()
@@ -2334,7 +2486,11 @@ class ToolboxApp(tk.Tk):
             self._notify("请输入URL")
             return
         method = self._http_method_var.get()
+        if self._headers_nb.index(self._headers_nb.select()) == 1:
+            self._sync_tree_to_text(self._hdr_tree, self._http_headers_text)
         headers_raw = self._http_headers_text.get("1.0", "end-1c")
+        if self._body_nb.index(self._body_nb.select()) == 1:
+            self._sync_tree_to_text(self._body_tree, self._http_body_text)
         body = self._http_body_text.get("1.0", "end-1c").strip() or None
         try:
             headers = parse_headers(headers_raw) if headers_raw else None
@@ -2346,18 +2502,25 @@ class ToolboxApp(tk.Tk):
 
     def _http_send(self, method, url, headers, body):
         resp = send_request(method, url, headers=headers, body=body)
-        return format_response(resp)
+        return resp
 
-    def _http_done(self, result):
-        if result is None:
+    def _http_done(self, resp):
+        if resp is None:
             self._log_result_banner(False)
             return
         self._http_output.delete("1.0", "end")
-        self._http_output.insert("1.0", result)
+        self._http_output.insert("1.0", format_response(resp))
+        headers_text = "\n".join(f"{k}: {v}" for k, v in resp.get("headers", {}).items())
+        self._http_headers_output.delete("1.0", "end")
+        self._http_headers_output.insert("1.0", headers_text)
+        self._http_body_output.delete("1.0", "end")
+        self._http_body_output.insert("1.0", resp.get("body", ""))
         self._log_result_banner(True)
 
     def _http_clear(self):
         self._http_output.delete("1.0", "end")
+        self._http_headers_output.delete("1.0", "end")
+        self._http_body_output.delete("1.0", "end")
 
     # =============== 页面10: JSON格式化 ===============
     def _show_page_json(self):
