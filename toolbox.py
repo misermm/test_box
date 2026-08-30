@@ -2334,8 +2334,8 @@ class ToolboxApp(tk.Tk):
         r1 = self._row(self.content)
         self._label(r1, "方法:").pack(side="left")
         self._http_method_var = tk.StringVar(value="GET")
-ttk.Combobox(r1, textvariable=self._http_method_var, state="readonly",
-                      values=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"], width=10).pack(side="left", padx=(4, 10))
+        ttk.Combobox(r1, textvariable=self._http_method_var, state="readonly",
+                     values=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"], width=10).pack(side="left", padx=(4, 10))
         self._label(r1, "URL:").pack(side="left")
         tk.Entry(r1, textvariable=self._http_url_var).pack(
             side="left", padx=4, fill="x", expand=True)
@@ -2366,10 +2366,11 @@ ttk.Combobox(r1, textvariable=self._http_method_var, state="readonly",
         hdr_scroll = ttk.Scrollbar(self._hdr_table_frame, orient="vertical", command=self._hdr_tree.yview)
         hdr_scroll.pack(side="right", fill="y")
         self._hdr_tree.configure(yscrollcommand=hdr_scroll.set)
+        self._hdr_tree.bind("<Double-1>", self._on_hdr_tree_double_click)
         btn_frame = tk.Frame(self._hdr_table_frame)
         btn_frame.pack(side="bottom", fill="x", pady=2)
-        tk.Button(btn_frame, text="添加", command=self._add_hdr_row, width=6).pack(side="left", padx=2)
-        tk.Button(btn_frame, text="删除", command=self._del_hdr_row, width=6).pack(side="left", padx=2)
+        tk.Button(btn_frame, text="添加", command=self._add_hdr_row, width=6).pack(side="left", padx=2, expand=True)
+        tk.Button(btn_frame, text="删除", command=self._del_hdr_row, width=6).pack(side="left", padx=2, expand=True)
 
         # === 请求体：文本/表格切换 ===
         tk.Label(self.content, text="请求体 (POST时使用，可空):", bg="#f5f6fa",
@@ -2393,10 +2394,11 @@ ttk.Combobox(r1, textvariable=self._http_method_var, state="readonly",
         body_scroll = ttk.Scrollbar(self._body_table_frame, orient="vertical", command=self._body_tree.yview)
         body_scroll.pack(side="right", fill="y")
         self._body_tree.configure(yscrollcommand=body_scroll.set)
+        self._body_tree.bind("<Double-1>", self._on_body_tree_double_click)
         btn_frame2 = tk.Frame(self._body_table_frame)
         btn_frame2.pack(side="bottom", fill="x", pady=2)
-        tk.Button(btn_frame2, text="添加", command=self._add_body_row, width=6).pack(side="left", padx=2)
-        tk.Button(btn_frame2, text="删除", command=self._del_body_row, width=6).pack(side="left", padx=2)
+        tk.Button(btn_frame2, text="添加", command=self._add_body_row, width=6).pack(side="left", padx=2, expand=True)
+        tk.Button(btn_frame2, text="删除", command=self._del_body_row, width=6).pack(side="left", padx=2, expand=True)
 
         # === 导入接口 ===
         tk.Label(self.content, text="导入接口 (粘贴curl命令后点击导入):", bg="#f5f6fa",
@@ -2450,6 +2452,50 @@ ttk.Combobox(r1, textvariable=self._http_method_var, state="readonly",
         sel = self._body_tree.selection()
         for item in sel:
             self._body_tree.delete(item)
+
+    def _on_hdr_tree_double_click(self, event):
+        region = self._hdr_tree.identify_region(event.x, event.y)
+        if region != "cell":
+            return
+        column = self._hdr_tree.identify_column(event.x)
+        item = self._hdr_tree.identify_row(event.y)
+        if not item:
+            return
+        x, y, w, h = self._hdr_tree.bbox(item, column)
+        entry = tk.Entry(self._hdr_tree)
+        entry.place(x=x, y=y, width=w, height=h)
+        entry.insert(0, self._hdr_tree.set(item, column))
+        entry.focus_set()
+        entry.select_range(0, tk.END)
+        def _save(ev=None):
+            self._hdr_tree.set(item, column, entry.get())
+            entry.destroy()
+            self._sync_tree_to_text(self._hdr_tree, self._http_headers_text)
+        entry.bind("<Return>", _save)
+        entry.bind("<Escape>", lambda ev: entry.destroy())
+        entry.bind("<FocusOut>", _save)
+
+    def _on_body_tree_double_click(self, event):
+        region = self._body_tree.identify_region(event.x, event.y)
+        if region != "cell":
+            return
+        column = self._body_tree.identify_column(event.x)
+        item = self._body_tree.identify_row(event.y)
+        if not item:
+            return
+        x, y, w, h = self._body_tree.bbox(item, column)
+        entry = tk.Entry(self._body_tree)
+        entry.place(x=x, y=y, width=w, height=h)
+        entry.insert(0, self._body_tree.set(item, column))
+        entry.focus_set()
+        entry.select_range(0, tk.END)
+        def _save(ev=None):
+            self._body_tree.set(item, column, entry.get())
+            entry.destroy()
+            self._sync_tree_to_text(self._body_tree, self._http_body_text)
+        entry.bind("<Return>", _save)
+        entry.bind("<Escape>", lambda ev: entry.destroy())
+        entry.bind("<FocusOut>", _save)
 
     def _sync_text_to_tree(self, tree, text_widget):
         for item in tree.get_children():
