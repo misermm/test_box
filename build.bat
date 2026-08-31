@@ -36,6 +36,7 @@ echo [2/3] Building exe (onefile + incremental cache)...
   --name "TestToolbox" ^
   --distpath dist --workpath build --specpath . ^
   --icon icon.ico --version-file version.txt ^
+  --splash splash.png ^
   --collect-all PIL --collect-all cv2 ^
   --collect-all paddle --collect-all pyclipper ^
   --collect-all shapely --collect-all paddlex ^

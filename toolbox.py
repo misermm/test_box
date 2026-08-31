@@ -1504,9 +1504,6 @@ class ToolboxApp(tk.Tk):
             self.after(0, lambda m="页面构建失败: " + _err.splitlines()[-1]: self._notify(m))
         else:
             self.content = frame
-            # 修复：页面构建中途失败后重进会重复堆叠控件（如生成页重复的输出路径行），每次进入前先清空旧内容
-            for _w in list(frame.winfo_children()):
-                _w.destroy()
 
         frame.pack(fill="both", expand=True)
         try:
@@ -3041,8 +3038,6 @@ class ToolboxApp(tk.Tk):
                          font=("Consolas", 10, "bold"))                    # 红色加粗
 
         # 绑定滚动事件（实现同步滚动）
-        self._jd_left.bind("<Scroll>", self._jd_on_scroll_left)
-        self._jd_right.bind("<Scroll>", self._jd_on_scroll_right)
         self._jd_left.bind("<MouseWheel>", self._jd_on_scroll_left)
         self._jd_right.bind("<MouseWheel>", self._jd_on_scroll_right)
 
@@ -4057,8 +4052,9 @@ def _close_boot_splash():
 
 
 def main():
-    _close_boot_splash()
+    # 先显示 Tk 加载窗口，再关闭 PyInstaller 启动画面，避免两者之间出现无窗口空窗
     loading = _create_loading_window()
+    _close_boot_splash()
     app = ToolboxApp()          # __init__ 内已将默认根切换为主窗口
     _close_loading_window(loading)  # 此时销毁加载窗不影响任何已创建变量
     # 启动时后台检查模型更新（网络失败不影响使用，仅日志提示）
