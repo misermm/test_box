@@ -6,11 +6,35 @@ echo        Build Test Toolbox
 echo ========================================
 echo.
 
-echo [1/3] Cleaning old files...
+echo [1/4] Checking models...
+if not exist models (
+    echo   models/ not found, downloading...
+    mkdir models
+    .venv\Scripts\python.exe download_models.py
+    if %ERRORLEVEL% neq 0 (
+        echo Model download failed!
+        pause
+        exit /b 1
+    )
+) else (
+    if not exist models\official_models\SLANet_plus\inference.yml (
+        echo   models incomplete, downloading...
+        .venv\Scripts\python.exe download_models.py
+        if %ERRORLEVEL% neq 0 (
+            echo Model download failed!
+            pause
+            exit /b 1
+        )
+    ) else (
+        echo   models OK
+    )
+)
+
+echo [2/4] Cleaning old files...
 if exist build rmdir /s /q build
 del /q *.spec 2>nul
 
-echo [2/3] Building exe...
+echo [3/4] Building exe...
 .venv\Scripts\python.exe -m PyInstaller --onefile --noconsole --name "TestToolbox" --icon icon.ico --version-file version.txt --collect-all PIL --collect-all cv2 --collect-all paddle --collect-all pyclipper --collect-all shapely --collect-all paddlex --add-data ".venv\Lib\site-packages\paddle\libs;paddle\libs" --add-data "models;models" toolbox.py
 
 if %ERRORLEVEL% neq 0 (
@@ -19,7 +43,7 @@ if %ERRORLEVEL% neq 0 (
     exit /b 1
 )
 
-echo [3/3] Cleaning temp files...
+echo [4/4] Cleaning temp files...
 if exist build rmdir /s /q build
 del /q *.spec 2>nul
 

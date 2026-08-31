@@ -1968,11 +1968,6 @@ class ToolboxApp(tk.Tk):
         except Exception:
             self._corrupt_tip_win = None
 
-        r3 = self._row(self.content)
-        self._label(r3, "输出路径:").pack(side="left")
-        tk.Entry(r3, textvariable=self._gen_out_var).pack(side="left", padx=8, fill="x", expand=True)
-        tk.Button(r3, text="浏览", command=self._gen_choose_out).pack(side="left")
-
         btn_row = self._row(self.content)
         tk.Button(btn_row, text="开始生成", command=self._gen_run,
                   bg="#1abc9c", fg="white",

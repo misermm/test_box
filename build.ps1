@@ -7,11 +7,33 @@ Write-Host "       Build Test Toolbox" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-Write-Host "[1/3] Cleaning old files..." -ForegroundColor Yellow
+Write-Host "[1/4] Checking models..." -ForegroundColor Yellow
+if (-not (Test-Path "models")) {
+    Write-Host "  models/ not found, downloading..." -ForegroundColor Yellow
+    New-Item -ItemType Directory -Path "models" -Force | Out-Null
+    & ".venv\Scripts\python.exe" download_models.py
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Model download failed!" -ForegroundColor Red
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+} elseif (-not (Test-Path "models\official_models\SLANet_plus\inference.yml")) {
+    Write-Host "  models incomplete, downloading..." -ForegroundColor Yellow
+    & ".venv\Scripts\python.exe" download_models.py
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Model download failed!" -ForegroundColor Red
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+} else {
+    Write-Host "  models OK" -ForegroundColor Green
+}
+
+Write-Host "[2/4] Cleaning old files..." -ForegroundColor Yellow
 if (Test-Path "build") { Remove-Item -Recurse -Force "build" }
 Get-ChildItem "*.spec" -ErrorAction SilentlyContinue | Remove-Item -Force
 
-Write-Host "[2/3] Building exe..." -ForegroundColor Yellow
+Write-Host "[3/4] Building exe..." -ForegroundColor Yellow
 & ".venv\Scripts\python.exe" -m PyInstaller --onefile --noconsole --name "TestToolbox" --icon icon.ico --version-file version.txt --collect-all PIL --collect-all cv2 --collect-all paddle --collect-all pyclipper --collect-all shapely --collect-all paddlex --add-data ".venv\Lib\site-packages\paddle\libs;paddle\libs" --add-data "models;models" toolbox.py
 
 if ($LASTEXITCODE -ne 0) {
@@ -20,7 +42,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-Write-Host "[3/3] Cleaning temp files..." -ForegroundColor Yellow
+Write-Host "[4/4] Cleaning temp files..." -ForegroundColor Yellow
 if (Test-Path "build") { Remove-Item -Recurse -Force "build" }
 Get-ChildItem "*.spec" -ErrorAction SilentlyContinue | Remove-Item -Force
 
