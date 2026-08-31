@@ -387,10 +387,29 @@ def _model_remote_tags(timeout=5):
 
 def _download_model(name, models_dir):
     """下载并解压单个模型到 models_dir/official_models/{name}"""
-    from paddlex.utils.download import download_and_extract
+    import tarfile
+    import urllib.request
     url = f"{_BOS_MODEL_BASE}/{name}_infer.tar"
     official_dir = os.path.join(models_dir, "official_models")
-    download_and_extract(url, official_dir, name)
+    tar_path = os.path.join(models_dir, f"{name}_infer.tar")
+
+    logging.info(f"[模型更新] 下载 {url}")
+
+    os.makedirs(models_dir, exist_ok=True)
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=300) as resp:
+        with open(tar_path, "wb") as f:
+            while True:
+                chunk = resp.read(8192)
+                if not chunk:
+                    break
+                f.write(chunk)
+
+    os.makedirs(official_dir, exist_ok=True)
+    with tarfile.open(tar_path, "r:*") as tar:
+        tar.extractall(official_dir)
+    os.remove(tar_path)
+    logging.info(f"[模型更新] {name} 下载并解压完成")
 
 
 def _save_models_manifest(models_dir, manifest):
@@ -1967,11 +1986,6 @@ class ToolboxApp(tk.Tk):
                 self._corrupt_tip_win = None
         except Exception:
             self._corrupt_tip_win = None
-
-        btn_row = self._row(self.content)
-        tk.Button(btn_row, text="开始生成", command=self._gen_run,
-                  bg="#1abc9c", fg="white",
-                  font=("Microsoft YaHei UI", 11, "bold"), width=18).pack(pady=(6, 0))
 
     def _on_corrupt_changed(self, event=None):
         if self._gen_corrupt_var.get() == "损坏":
