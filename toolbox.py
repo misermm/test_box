@@ -230,22 +230,37 @@ os.environ['PADDLE_PDX_MODEL_SOURCE'] = 'bos'
 os.environ['PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK'] = '1'
 os.environ['PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT'] = '0'
 
-# 补丁1：paddlex 部分模块在导入时用 importlib.metadata 检查 "opencv-contrib-python"，
-# 实际安装的是 opencv-python（同为 cv2），让该检查通过，否则 image_reader 等模块不会 import cv2
-import importlib.metadata as _imd
-import cv2 as _cv2
-_orig_imd_version = _imd.version
-def _patched_imd_version(name):
-    if name == "opencv-contrib-python":
-        return _cv2.__version__
-    return _orig_imd_version(name)
-_imd.version = _patched_imd_version
+# 性能优化：paddlex/cv2/PIL 是重依赖（加载需数秒），改为延迟导入。
+# 界面相关代码只依赖 tkinter（轻量），窗口可立即显示；
+# OCR/截图等用到重依赖的入口先调用 _load_heavy_modules()。
 
-# 补丁2：绕过 paddlex 在 PyInstaller exe 中的依赖检查
-# importlib.metadata 在冻结 exe 中找不到包元数据，但依赖实际已安装
-import paddlex.utils.deps as _pdx_deps
-_pdx_deps.is_extra_available = lambda extra: True
-_pdx_deps.is_dep_available = lambda dep, check_version=False: True
+_HEAVY_LOADED = False
+
+def _load_heavy_modules():
+    """按需加载重依赖（cv2/PIL/paddlex 补丁）。首次调用有数秒开销，之后直接返回。"""
+    global _HEAVY_LOADED, Image, ImageTk, ImageGrab, cv2
+    if _HEAVY_LOADED:
+        return
+    # 补丁1：paddlex 部分模块在导入时用 importlib.metadata 检查 "opencv-contrib-python"，
+    # 实际安装的是 opencv-python（同为 cv2），让该检查通过，否则 image_reader 等模块不会 import cv2
+    import importlib.metadata as _imd
+    import cv2 as _cv2
+    _orig_imd_version = _imd.version
+    def _patched_imd_version(name):
+        if name == "opencv-contrib-python":
+            return _cv2.__version__
+        return _orig_imd_version(name)
+    _imd.version = _patched_imd_version
+
+    # 补丁2：绕过 paddlex 在 PyInstaller exe 中的依赖检查
+    import paddlex.utils.deps as _pdx_deps
+    _pdx_deps.is_extra_available = lambda extra: True
+    _pdx_deps.is_dep_available = lambda dep, check_version=False: True
+
+    from PIL import Image as _Image, ImageGrab as _ImageGrab, ImageTk as _ImageTk
+    import cv2 as _cv2_real
+    Image, ImageGrab, ImageTk, cv2 = _Image, _ImageGrab, _ImageTk, _cv2_real
+    _HEAVY_LOADED = True
 
 import re
 import logging
@@ -254,8 +269,6 @@ import traceback
 import contextlib
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-from PIL import Image, ImageGrab, ImageTk
-import cv2
 
 # paddlex 内部日志走 logging（stderr/INFO 级别），配置后才能在日志面板可见
 logging.basicConfig(
@@ -264,7 +277,7 @@ logging.basicConfig(
 
 from image_to_pdf import merge_images_to_pdf, convert_images_to_zip
 from file_splitter import split_to_zip, merge_zip_files
-from generate_file import create_file, CORRUPT_METHODS
+from generate_file import create_file, CORRUPT_METHODS, TYPE_CORRUPT_METHODS
 from generate_text import generate_text, TEXT_TYPES
 from generate_person import generate_person, generate_id_card, generate_name, generate_phone
 from url_codec import url_encode, url_decode
@@ -283,6 +296,7 @@ _TABLE_PIPELINE_LOCK = threading.Lock()
 
 
 def _get_table_pipeline():
+    _load_heavy_modules()
     """获取表格识别流水线（懒加载 + 线程安全；按当前所选 OCR 模型构建）"""
     global _TABLE_PIPELINE, _TABLE_PIPELINE_KEY
     opt = _OCR_MODEL_OPTIONS[_OCR_MODEL_CHOICE]
@@ -528,7 +542,7 @@ def _check_model_updates_worker(app):
         # 过程始终写 logging（exe 下落到 update.log 文件，便于排查）
         logging.info(f"[模型更新] {text}")
         try:
-            app.after(0, lambda t=text: app._notify(t))
+            app.after(0, lambda t=text: app._notify_global(t))
         except Exception:
             # mainloop 未就绪或窗口已关闭时 after 会失败（RuntimeError/TclError），
             # UI 提示丢失但更新流程继续，日志中仍有完整记录
@@ -742,6 +756,7 @@ class RegionSelector(tk.Toplevel):
         self.after(30, self._prepare_background)
 
     def _prepare_background(self):
+        _load_heavy_modules()
         """窗口显示后抓取整屏并铺暗色底图（含 DPI 缩放比例记录）"""
         try:
             vw, vh = max(1, self.winfo_vrootwidth()), max(1, self.winfo_vrootheight())
@@ -990,12 +1005,14 @@ class RegionSelector(tk.Toplevel):
 
 
 def capture_region(parent=None, callback=None):
+    _load_heavy_modules()
     """弹出区域选择窗口，确认截图后通过callback返回PIL.Image，取消返回None"""
     selector = RegionSelector(parent=parent, callback=callback)
     return selector
 
 
 def recognize_table(image_path_or_pil):
+    _load_heavy_modules()
     """识别图片中的表格（使用paddlex table_recognition流水线）"""
     import numpy as np
     import time
@@ -1183,6 +1200,10 @@ class LogBuffer:
 class ToolboxApp(tk.Tk):
     def __init__(self):
         super().__init__()
+        # 修复：本窗口创建时默认根还是启动加载窗，若不切换，
+        # __init__ 里创建的 IntVar/StringVar 都挂在加载窗上，加载窗销毁后全部失效，
+        # 导致所有功能页按钮消失。这里立刻把默认根指回主窗口。
+        tk._default_root = self
         self.title(f"{APP_NAME} v{APP_VERSION}")
         self.geometry("980x680")
         self.minsize(820, 560)
@@ -1196,6 +1217,7 @@ class ToolboxApp(tk.Tk):
         self._task_thread = None
         self._running = False
         self._page_frames = {}
+        self.ABOUT_PAGE_INDEX = 12  # 菜单顺序: ...截图识别表格(11) 设置(13) 关于(12)
         self._page_logs = {}
         self._current_menu_index = None
         self._log_owner = None
@@ -1231,12 +1253,49 @@ class ToolboxApp(tk.Tk):
 
         # OCR表格识别相关变量
         self._ocr_hotkey_var = tk.StringVar(value="Ctrl+Shift+T")
+
+        # ---- 统一设置持久化：所有设置类变量启动时恢复、变化即保存（一个逻辑） ----
+        self._setting_vars = {
+            "pdf_out": self._pdf_out_var,
+            "zip_out": self._zip_out_var,
+            "split_in": self._split_in_var,
+            "split_size": self._split_size_var,
+            "split_out": self._split_out_var,
+            "split_prefix": self._split_prefix_var,
+            "merge_out": self._merge_out_var,
+            "gen_size": self._gen_size_var,
+            "gen_type": self._gen_type_var,
+            "gen_corrupt": self._gen_corrupt_var,
+            "gen_corrupt_method": self._gen_corrupt_method_var,
+            "gen_out": self._gen_out_var,
+            "text_len": self._text_len_var,
+            "text_type": self._text_type_var,
+            "http_url": self._http_url_var,
+            "ocr_hotkey": self._ocr_hotkey_var,
+        }
+        for _key, _var in self._setting_vars.items():
+            _saved = _read_config(f"setting_{_key}")
+            if _saved is not None and _saved != "":
+                try:
+                    _var.set(_saved)
+                except Exception:
+                    pass
+            _var.trace_add("write", lambda *_a, k=_key, v=_var:
+                           _write_config(f"setting_{k}", v.get()))
         self._ocr_table_data = []
         self._ocr_listener = None
         self._ocr_selecting = False   # 区域选择器已打开（防快捷键重入）
         self._ocr_downloading = None  # 正在后台下载的模型 label（防重复下载）
         self._storage_migrating = False  # 存储位置迁移进行中（防重复迁移/下载冲突）
 
+        # 全局字体缩放系数（设置页调整，持久化到配置文件 ui_font_scale 以便重启保留）
+        try:
+            self._font_scale = float(_read_config("ui_font_scale"))
+        except Exception:
+            self._font_scale = 1.0
+        if not (0.5 <= self._font_scale <= 3.0):
+            self._font_scale = 1.0
+        self._font_base = {}     # 控件 -> 原始字体信息（首次遍历时记录）
         self._build_ui()
         self._select_menu(0)
         # 全局快捷键启动即生效：页面是懒构建的，若只在 OCR 页初始化，
@@ -1249,7 +1308,7 @@ class ToolboxApp(tk.Tk):
         ("文件处理", [0, 1, 2, 3]),       # 图片转PDF/图片批量转ZIP/文件分割/文件合并
         ("数据生成", [4, 5, 6]),          # 生成指定大小文件/生成指定长度文本/随机人员信息
         ("开发工具", [8, 7, 9, 10]),      # 接口请求/URL编码解码/JSON格式化/JSON对比
-        (None, [11, 12]),                 # 截图识别表格/关于（独立功能不分组）
+        (None, [11, 13, 12]),             # 截图识别表格/设置/关于（独立功能不分组，设置在关于上方）
     ]
 
     def _build_ui(self):
@@ -1375,7 +1434,7 @@ class ToolboxApp(tk.Tk):
     def _page_title(self, index):
         return ["图片转 PDF", "单图单PDF转ZIP", "文件分割", "文件合并",
                 "生成指定大小文件", "生成指定长度文本", "随机人员信息",
-                "URL编码解码", "接口请求", "JSON格式化", "JSON对比", "截图识别表格", "关于"][index]
+                "URL编码解码", "接口请求", "JSON格式化", "JSON对比", "截图识别表格", "关于", "设置"][index]
 
     def _select_menu(self, index):
         self._save_current_log()
@@ -1396,42 +1455,53 @@ class ToolboxApp(tk.Tk):
             # 修复：页面构建中途失败后重进会重复堆叠控件（如生成页重复的输出路径行），每次进入前先清空旧内容
             for _w in list(frame.winfo_children()):
                 _w.destroy()
-            if index == 0:
-                self._show_page_pdf()
-            elif index == 1:
-                self._show_page_zip()
-            elif index == 2:
-                self._show_page_split()
-            elif index == 3:
-                self._show_page_merge()
-            elif index == 4:
-                self._show_page_generate()
-            elif index == 5:
-                self._show_page_text()
-            elif index == 6:
-                self._show_page_person()
-            elif index == 7:
-                self._show_page_url()
-            elif index == 8:
-                # BUG-01: 页面构建异常时不能静默失败（否则界面控件显示不全且无提示）
-                try:
-                    self._show_page_http()
-                except Exception:
-                    # 完整堆栈写入程序同级日志文件，便于离线排查
-                    try:
-                        with open(os.path.join(_APP_DIR, "http_page_build_error.log"), "w", encoding="utf-8") as _ef:
-                            _ef.write(traceback.format_exc())
-                    except Exception:
-                        pass
-                    self.after(0, lambda m="接口请求页面构建失败: " + traceback.format_exc().splitlines()[-1]: self._notify(m))
-            elif index == 9:
-                self._show_page_json()
-            elif index == 10:
-                self._show_page_jsondiff()
-            elif index == 11:
-                self._show_page_ocr_table()
-            else:
-                self._show_page_about()
+        try:
+                    if index == 0:
+                        self._show_page_pdf()
+                    elif index == 1:
+                        self._show_page_zip()
+                    elif index == 2:
+                        self._show_page_split()
+                    elif index == 3:
+                        self._show_page_merge()
+                    elif index == 4:
+                        self._show_page_generate()
+                    elif index == 5:
+                        self._show_page_text()
+                    elif index == 6:
+                        self._show_page_person()
+                    elif index == 7:
+                        self._show_page_url()
+                    elif index == 8:
+                        # BUG-01: 页面构建异常时不能静默失败（否则界面控件显示不全且无提示）
+                        try:
+                            self._show_page_http()
+                        except Exception:
+                            # 完整堆栈写入程序同级日志文件，便于离线排查
+                            try:
+                                with open(os.path.join(_APP_DIR, "http_page_build_error.log"), "w", encoding="utf-8") as _ef:
+                                    _ef.write(traceback.format_exc())
+                            except Exception:
+                                pass
+                            self.after(0, lambda m="接口请求页面构建失败: " + traceback.format_exc().splitlines()[-1]: self._notify(m))
+                    elif index == 9:
+                        self._show_page_json()
+                    elif index == 10:
+                        self._show_page_jsondiff()
+                    elif index == 11:
+                        self._show_page_ocr_table()
+                    elif index == 12:
+                        self._show_page_about()
+                    elif index == 13:
+                        self._show_page_settings()
+        except Exception:
+            _err = traceback.format_exc()
+            try:
+                with open(os.path.join(_APP_DIR, "page_build_error.log"), "a", encoding="utf-8") as _ef:
+                    _ef.write("="*60 + "\n页面构建失败 index=" + str(index) + "\n" + _err + "\n")
+            except Exception:
+                pass
+            self.after(0, lambda m="页面构建失败: " + _err.splitlines()[-1]: self._notify(m))
         else:
             self.content = frame
             # 修复：页面构建中途失败后重进会重复堆叠控件（如生成页重复的输出路径行），每次进入前先清空旧内容
@@ -1439,8 +1509,14 @@ class ToolboxApp(tk.Tk):
                 _w.destroy()
 
         frame.pack(fill="both", expand=True)
-
-        self._restore_log()
+        try:
+            self._apply_font_scale()
+        except Exception:
+            traceback.print_exc()
+        try:
+            self._restore_log()
+        except Exception:
+            traceback.print_exc()
 
     # ---------------- 日志 ----------------
     def _dev_log(self, level, msg):
@@ -1457,6 +1533,13 @@ class ToolboxApp(tk.Tk):
     def _save_current_log(self):
         if self._log_owner is None:
             return
+        try:
+            self.log.winfo_exists()
+        except Exception:
+            return
+        if self._log_owner == self.ABOUT_PAGE_INDEX:
+            # 关于页日志由 _log_global 统一维护，不走页面保存/过滤，避免全局日志被误删
+            return
         content = self.log.get("1.0", "end-1c")
         # 过滤：各功能页日志只保留菜单操作产生的信息，剔除启动/加载/构建类信息（完整记录在关于页后台日志）
         _noise = ("[构建]", "迁移", "storage", "加载", "初始化", "[启动]")
@@ -1468,6 +1551,10 @@ class ToolboxApp(tk.Tk):
             self._page_logs.pop(self._log_owner, None)
 
     def _restore_log(self):
+        try:
+            self.log.winfo_exists()
+        except Exception:
+            return
         self.log.config(state="normal")
         self.log.delete("1.0", "end")
         content = self._page_logs.get(self._log_owner)
@@ -1559,6 +1646,22 @@ class ToolboxApp(tk.Tk):
         self.log.config(state="normal")
         self._append_log_text(f"[提示] {text}\n")
         self.log.config(state="disabled")
+
+    def _log_global(self, text):
+        """全局日志：只写入"关于"页（启动/加载/后台检查等非单个功能的消息）"""
+        idx = getattr(self, "ABOUT_PAGE_INDEX", 12)
+        stored = self._page_logs.get(idx, "")
+        self._page_logs[idx] = stored + text.replace("\r", "\n")
+        # 若当前正显示关于页且其日志控件已构建，同步显示
+        if self._log_owner == idx and hasattr(self, "log"):
+            self.log.config(state="normal")
+            self.log.insert("end", text)
+            self.log.see("end")
+            self.log.config(state="disabled")
+
+    def _notify_global(self, text):
+        """后台/启动类提示：只进"关于"页日志，不打扰当前功能页"""
+        self._log_global(f"[提示] {text}\n")
 
     def _start_task(self, func, *args, on_done=None):
         if self._running:
@@ -1905,8 +2008,10 @@ class ToolboxApp(tk.Tk):
 
         r2 = self._row(self.content)
         self._label(r2, "文件类型:").pack(side="left")
-        ttk.Combobox(r2, textvariable=self._gen_type_var, state="readonly",
-                     values=["zip", "plain", "pdf", "docx", "xlsx"], width=10).pack(side="left", padx=8)
+        self._gen_type_combo = ttk.Combobox(r2, textvariable=self._gen_type_var, state="readonly",
+                     values=["docx", "jpg", "pdf", "plain", "png", "rar", "xlsx", "zip"], width=10)
+        self._gen_type_combo.pack(side="left", padx=8)
+        self._gen_type_combo.bind("<<ComboboxSelected>>", self._on_gen_type_changed)
 
         r4 = self._row(self.content)
         self._label(r4, "文件状态:").pack(side="left")
@@ -1916,9 +2021,8 @@ class ToolboxApp(tk.Tk):
         self._gen_corrupt_combo.bind("<<ComboboxSelected>>", self._on_corrupt_changed)
 
         self._gen_corrupt_method_label = self._label(r4, "损坏方式:")
-        corrupt_method_values = list(CORRUPT_METHODS.keys())
         self._gen_corrupt_method_combo = ttk.Combobox(r4, textvariable=self._gen_corrupt_method_var, state="readonly",
-                     values=corrupt_method_values, width=15)
+                     values=self._gen_methods_for_type(self._gen_type_var.get()), width=15)
         self._gen_corrupt_method_label.pack(side="left")
         self._gen_corrupt_method_combo.pack(side="left", padx=8)
         self._init_corrupt_tips()  # 悬浮说明：悬停下拉框显示当前损坏方式的中文释义
@@ -1933,6 +2037,7 @@ class ToolboxApp(tk.Tk):
                   bg="#1abc9c", fg="white",
                   font=("Microsoft YaHei UI", 11, "bold"), width=18).pack(pady=(6, 0))
         self._on_corrupt_changed()
+        self._on_gen_type_changed()
 
     def _init_corrupt_tips(self):
         """损坏方式下拉框的悬浮说明（悬停时显示当前选中方式的中文释义）"""
@@ -1944,6 +2049,7 @@ class ToolboxApp(tk.Tk):
             "full_random": "全部随机覆盖：整个文件内容全部替换为随机垃圾数据，完全不可恢复",
             "truncate": "截断文件：把文件砍掉一部分只剩前半段，文件变小，数据缺失",
             "zero_fill": "全部清零：整个文件内容全部写成0，大小不变但内容全空",
+            "sig_only": "仅破坏文件头签名：只改写文件开头的魔数（如PNG的\x89PNG、RAR的Rar!），格式识别立即失败，其余数据保持不变",
         }
         self._corrupt_tip_win = None
         # 选中后在下拉框后面直接显示中文简述
@@ -1987,6 +2093,19 @@ class ToolboxApp(tk.Tk):
         except Exception:
             self._corrupt_tip_win = None
 
+    def _gen_methods_for_type(self, ftype):
+        """按文件类型返回适用的损坏方式列表"""
+        return TYPE_CORRUPT_METHODS.get(ftype, list(CORRUPT_METHODS.keys()))
+
+    def _on_gen_type_changed(self, event=None):
+        """文件类型变化时，损坏方式下拉项切换为该类型的常见损坏方式"""
+        methods = self._gen_methods_for_type(self._gen_type_var.get())
+        self._gen_corrupt_method_combo["values"] = methods
+        if self._gen_corrupt_method_var.get() not in methods:
+            self._gen_corrupt_method_var.set(methods[0])
+        if hasattr(self, "_update_corrupt_tip_label"):
+            self._update_corrupt_tip_label()
+
     def _on_corrupt_changed(self, event=None):
         if self._gen_corrupt_var.get() == "损坏":
             self._gen_corrupt_method_label.pack(side="left")
@@ -2016,7 +2135,8 @@ class ToolboxApp(tk.Tk):
             self._notify("大小必须大于0")
             return
         ftype = self._gen_type_var.get()
-        ext_map = {"zip": "zip", "plain": "bin", "pdf": "pdf", "docx": "docx", "xlsx": "xlsx"}
+        ext_map = {"zip": "zip", "plain": "bin", "pdf": "pdf", "docx": "docx", "xlsx": "xlsx",
+                   "png": "png", "jpg": "jpg", "rar": "rar"}
         ext = ext_map.get(ftype, "bin")
         out_dir = self._gen_out_var.get().strip()
         if not out_dir:
@@ -3391,7 +3511,7 @@ class ToolboxApp(tk.Tk):
             self._ocr_listener = keyboard.GlobalHotKeys({combo: on_activate})
             self._ocr_listener.daemon = True
             self._ocr_listener.start()
-            self._log(f"[快捷键] 全局监听已启动: {display}\n")
+            self._log_global(f"[快捷键] 全局监听已启动: {display}\n")
             return True
         except Exception as e:
             self._log(f"[快捷键] 监听器启动失败: {e}\n")
@@ -3431,6 +3551,7 @@ class ToolboxApp(tk.Tk):
         capture_region(parent=self, callback=on_region_selected)
 
     def _ocr_select_file(self):
+        _load_heavy_modules()
         """选择图片文件"""
         f = filedialog.askopenfilename(
             title="选择图片文件",
@@ -3603,6 +3724,95 @@ class ToolboxApp(tk.Tk):
         self._ocr_tree.delete(*self._ocr_tree.get_children())
         self._ocr_tree["columns"] = []
 
+    # =============== 全局字体缩放 ===============
+    def _apply_font_scale(self):
+        """遍历所有控件，按 self._font_scale 重新设置字体大小（首次记录原始值）"""
+        import tkinter.font as tkfont
+        scale = self._font_scale
+
+        # ttk 控件（Treeview 等）不走 cget("font")，需通过 Style 统一缩放
+        try:
+            if not hasattr(self, "_ttk_base_font"):
+                _sf = tkfont.nametofont("TkDefaultFont")
+                self._ttk_base_font = (_sf.actual("family"), _sf.actual("size"))
+            fam, sz = self._ttk_base_font
+            _st = ttk.Style()
+            _st.configure("Treeview", font=(fam, max(7, round(10 * scale))))
+            _st.configure("Treeview.Heading", font=(fam, max(7, round(10 * scale)), "bold"))
+        except Exception:
+            pass
+
+        def walk(w):
+            for child in w.winfo_children():
+                walk(child)
+            try:
+                f = w.cget("font")
+            except Exception:
+                return
+            if not f:
+                return
+            key = str(w)
+            base = self._font_base.get(key)
+            if base is None:
+                try:
+                    fo = tkfont.Font(font=f)
+                    base = (fo.actual("family"), fo.actual("size"),
+                            fo.actual("weight"), fo.actual("slant"))
+                except Exception:
+                    return
+                self._font_base[key] = base
+            fam, size, weight, slant = base
+            try:
+                w.configure(font=(fam, max(7, round(size * scale)), weight, slant))
+            except Exception:
+                pass
+
+        walk(self)
+
+    def _on_font_scale_changed(self, value):
+        """设置页滑块回调：实时应用字体缩放"""
+        try:
+            self._font_scale = float(value)
+            _write_config("ui_font_scale", str(self._font_scale))
+            self._apply_font_scale()
+            lbl = getattr(self, "_font_scale_value_label", None)
+            if lbl is not None and lbl.winfo_exists():
+                lbl.config(text=f"{int(round(float(value) * 100))}%")
+        except Exception:
+            pass
+
+    # =============== 页面14: 设置 ===============
+    def _show_page_settings(self):
+        self.title_label.config(text="设置")
+        card = tk.Frame(self.content, bg="white")
+        card.pack(fill="x", padx=4, pady=8)
+
+        tk.Label(card, text="字体大小", bg="white", fg="#2c3e50",
+                 font=("Microsoft YaHei UI", 12, "bold")).pack(anchor="w", padx=16, pady=(12, 4))
+        tk.Label(card, text="拖动滑块实时调整整个界面的字体大小（100% 为默认大小）",
+                 bg="white", fg="#7f8c8d",
+                 font=("Microsoft YaHei UI", 9)).pack(anchor="w", padx=16)
+
+        row = tk.Frame(card, bg="white")
+        row.pack(fill="x", padx=16, pady=(4, 14))
+
+        tk.Label(row, text="小", bg="white", fg="#2c3e50",
+                 font=("Microsoft YaHei UI", 9)).pack(side="left")
+
+        scale = tk.Scale(row, from_=0.8, to=1.6, resolution=0.05, orient="horizontal",
+                         command=self._on_font_scale_changed, bg="white",
+                         highlightthickness=0, length=280, showvalue=False)
+        scale.set(self._font_scale)
+        scale.pack(side="left", padx=8, fill="x", expand=True)
+
+        tk.Label(row, text="大", bg="white", fg="#2c3e50",
+                 font=("Microsoft YaHei UI", 13)).pack(side="left")
+
+        self._font_scale_value_label = tk.Label(card, text=f"{int(round(self._font_scale * 100))}%",
+                                                bg="white", fg="#1abc9c",
+                                                font=("Microsoft YaHei UI", 12, "bold"))
+        self._font_scale_value_label.pack(anchor="e", padx=16, pady=(0, 12))
+
     # =============== 页面13: 关于 ===============
     def _show_page_about(self):
         self.title_label.config(text="关于")
@@ -3633,10 +3843,6 @@ class ToolboxApp(tk.Tk):
         bar.pack(fill="x", pady=(8, 2))
         tk.Label(bar, text="日志级别:", bg="#f5f6fa",
                  font=("Microsoft YaHei UI", 10)).pack(side="left")
-        self._dev_log_level_var = tk.StringVar(value=self._dev_log_level)
-        ttk.Combobox(bar, textvariable=self._dev_log_level_var, state="readonly",
-                     values=self._DEV_LOG_LEVELS, width=8).pack(side="left", padx=(4, 10))
-
         def _refresh_dev_log(_e=None):
             self._dev_log_level = self._dev_log_level_var.get()
             order = {lv: i for i, lv in enumerate(self._DEV_LOG_LEVELS)}
@@ -3648,6 +3854,13 @@ class ToolboxApp(tk.Tk):
                     self._dev_log_text.insert("end", f"[{ts}] [{lv}] {msg}\n")
             self._dev_log_text.see("end")
             self._dev_log_text.config(state="disabled")
+
+        self._dev_log_level_var = tk.StringVar(value=self._dev_log_level)
+        self._dev_log_level_combo = ttk.Combobox(bar, textvariable=self._dev_log_level_var, state="readonly",
+                     values=self._DEV_LOG_LEVELS, width=8)
+        self._dev_log_level_combo.pack(side="left", padx=(4, 10))
+        self._dev_log_level_combo.bind("<<ComboboxSelected>>", _refresh_dev_log)
+
 
         self._refresh_dev_log = _refresh_dev_log
         tk.Button(bar, text="刷新", command=_refresh_dev_log, width=8).pack(side="left")
@@ -3724,6 +3937,7 @@ class ToolboxApp(tk.Tk):
 
 
 def _prewarm_model_worker(app):
+    _load_heavy_modules()
     """后台预热：程序启动后立即加载表格识别模型。
     mobile 模型加载仅需数秒；server 模型较慢（exe 下约1-3分钟）。
     预热后用户截图识别可立即返回，避免识别期间长时间等待被误认为无响应。"""
@@ -3731,7 +3945,7 @@ def _prewarm_model_worker(app):
 
     def notify(text):
         try:
-            app.after(0, lambda t=text: app._notify(t))
+            app.after(0, lambda t=text: app._notify_global(t))
         except Exception:
             pass
 
@@ -3750,6 +3964,7 @@ def _prewarm_model_worker(app):
 
 
 def _run_selftest():
+    _load_heavy_modules()
     """无 GUI 自检入口（TestToolbox.exe --selftest）：生成表格图并完整跑一次识别，
     结果写入 exe 同级 _selftest_result.txt，用于验证打包后识别功能真实可用。"""
     import time
@@ -3798,8 +4013,54 @@ def _run_selftest():
             logging.error(f"[selftest] FAIL\n{traceback.format_exc()}")
 
 
+def _create_loading_window():
+    """动态加载窗口：无边框小窗 + 滚动进度条，主窗口就绪后由 _close_loading_window 销毁"""
+    try:
+        win = tk.Tk()
+        win.title("启动中")
+        win.overrideredirect(True)
+        win.attributes("-topmost", True)
+        win.configure(bg="white", padx=24, pady=18)
+        w, h = 280, 110
+        sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+        win.geometry(f"{w}x{h}+{(sw - w) // 2}+{(sh - h) // 2}")
+        tk.Label(win, text="测试工具箱", bg="white", fg="#2c3e50",
+                 font=("Microsoft YaHei UI", 12, "bold")).pack()
+        tk.Label(win, text="正在加载组件，请稍候...", bg="white", fg="#7f8c8d",
+                 font=("Microsoft YaHei UI", 9)).pack(pady=(2, 10))
+        bar = ttk.Progressbar(win, mode="indeterminate", maximum=100, length=220)
+        bar.pack()
+        bar.start(12)
+        win.update()
+        return win
+    except Exception:
+        return None
+
+
+def _close_loading_window(win):
+    """安全销毁加载窗口"""
+    if win is None:
+        return
+    try:
+        win.destroy()
+    except Exception:
+        pass
+
+
+def _close_boot_splash():
+    """兼容：若存在 PyInstaller 静态启动画面则立即关闭（--splash 打包时生效）"""
+    try:
+        import pyi_splash  # noqa: F401  打包含 --splash 时才存在
+        pyi_splash.close()
+    except Exception:
+        pass
+
+
 def main():
-    app = ToolboxApp()
+    _close_boot_splash()
+    loading = _create_loading_window()
+    app = ToolboxApp()          # __init__ 内已将默认根切换为主窗口
+    _close_loading_window(loading)  # 此时销毁加载窗不影响任何已创建变量
     # 启动时后台检查模型更新（网络失败不影响使用，仅日志提示）
     _setup_update_file_log()
 

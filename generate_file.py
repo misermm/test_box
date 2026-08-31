@@ -18,6 +18,28 @@ CORRUPT_METHODS = {
     "full_random": "全部随机覆盖",
     "truncate": "截断文件",
     "zero_fill": "全部清零",
+    "sig_only": "仅破坏文件头签名",
+}
+
+
+# 各文件类型的常见/适用损坏方式（按推荐程度排序）
+TYPE_CORRUPT_METHODS = {
+    "png": ["sig_only", "header_only", "header_tail", "truncate", "zero_fill",
+            "tail_only", "random_positions", "full_random"],
+    "jpg": ["sig_only", "header_only", "header_tail", "truncate", "zero_fill",
+            "tail_only", "random_positions", "full_random"],
+    "rar": ["header_tail", "header_only", "sig_only", "truncate", "zero_fill",
+            "tail_only", "random_positions", "full_random"],
+    "zip": ["header_tail", "header_only", "tail_only", "random_positions",
+            "full_random", "truncate", "zero_fill", "sig_only"],
+    "pdf": ["header_tail", "header_only", "tail_only", "random_positions",
+            "full_random", "truncate", "zero_fill", "sig_only"],
+    "docx": ["header_tail", "header_only", "tail_only", "random_positions",
+             "full_random", "truncate", "zero_fill", "sig_only"],
+    "xlsx": ["header_tail", "header_only", "tail_only", "random_positions",
+             "full_random", "truncate", "zero_fill", "sig_only"],
+    "plain": ["header_tail", "header_only", "tail_only", "random_positions",
+              "full_random", "truncate", "zero_fill", "sig_only"],
 }
 
 
@@ -53,6 +75,12 @@ def corrupt_file(output_path, method="header_tail"):
         elif method == "header_only":
             f.write(os.urandom(region))
             print(f"已覆盖头部 {region} 字节")
+
+        elif method == "sig_only":
+            n = min(16, total)
+            f.seek(0)
+            f.write(os.urandom(n))
+            print(f"已破坏文件头签名（覆盖前 {n} 字节魔数）")
 
         elif method == "tail_only":
             f.seek(total - region)
@@ -101,7 +129,7 @@ def create_file(output_path, size_mb, file_type="zip", corrupted=False, corrupt_
     参数:
         output_path: 输出文件路径
         size_mb: 文件大小（MB）
-        file_type: 文件类型 (zip, plain, pdf, docx, xlsx)
+        file_type: 文件类型 (zip, plain, pdf, docx, xlsx, png, jpg, rar)
         corrupted: 是否生成损坏的文件
         corrupt_method: 损坏方式 (header_tail, header_only, tail_only, random_positions, full_random, truncate, zero_fill)
     """
@@ -127,6 +155,10 @@ def create_file(output_path, size_mb, file_type="zip", corrupted=False, corrupt_
         create_docx_file(output_path, size_bytes)
     elif file_type == "xlsx":
         create_xlsx_file(output_path, size_bytes)
+    elif file_type in ("png", "jpg"):
+        create_image_file(output_path, size_bytes, file_type)
+    elif file_type == "rar":
+        create_rar_file(output_path, size_bytes)
     else:
         create_plain_file(output_path, size_bytes)
 
@@ -141,6 +173,56 @@ def create_file(output_path, size_mb, file_type="zip", corrupted=False, corrupt_
     print(f"文件: {output_path}")
     print(f"实际大小: {actual_mb:.2f} MB")
     return True
+
+
+def create_image_file(output_path, target_size, file_type="png"):
+    """创建指定大小的图片文件（PNG/JPG，可用图片查看器正常打开）"""
+    print(f"正在创建{file_type.upper()}图片文件...")
+    from PIL import Image
+    import io as _io
+
+    fmt = "PNG" if file_type == "png" else "JPEG"
+    # 生成一张随机噪声图（不可压缩，尺寸随目标大小估算）
+    approx_pixels = max(64, int(target_size * 0.9 / (3 if fmt == "PNG" else 3)))
+    side = max(8, int(approx_pixels ** 0.5))
+    img = Image.frombytes("RGB", (side, side), os.urandom(side * side * 3))
+
+    buf = _io.BytesIO()
+    img.save(buf, format=fmt)
+    header = buf.getvalue()
+
+    with open(output_path, "wb") as f:
+        f.write(header)
+        written = len(header)
+        chunk = 1024 * 1024
+        while written < target_size:
+            n = min(chunk, target_size - written)
+            f.write(os.urandom(n))
+            written += n
+            progress = min(100, written / target_size * 100)
+            print(f"\r进度: {progress:.1f}%", end="", flush=True)
+    print()
+
+
+def create_rar_file(output_path, target_size):
+    """创建指定大小的RAR文件（带RAR4文件头，填充随机数据）"""
+    print("正在创建RAR文件...")
+    # RAR 4.x 文件头 (Rar!) + 最小主头
+    rar_header = bytes([
+        0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00,   # Rar!
+        0xC4, 0x3D, 0x7B, 0x00, 0x40, 0x07, 0x00,   # main header
+    ])
+    with open(output_path, "wb") as f:
+        f.write(rar_header)
+        written = len(rar_header)
+        chunk = 1024 * 1024
+        while written < target_size:
+            n = min(chunk, target_size - written)
+            f.write(os.urandom(n))
+            written += n
+            progress = min(100, written / target_size * 100)
+            print(f"\r进度: {progress:.1f}%", end="", flush=True)
+    print()
 
 
 def create_zip_file(output_path, target_size):
@@ -460,7 +542,7 @@ def main():
         '-t', '--type',
         choices=['zip', 'plain', 'pdf', 'docx', 'xlsx'],
         default='zip',
-        help='文件类型: zip, plain, pdf, docx, xlsx (默认: zip)'
+        help='文件类型: docx, jpg, pdf, plain, png, rar, xlsx, zip (默认: zip)'
     )
 
     parser.add_argument(

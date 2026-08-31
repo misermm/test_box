@@ -1,5 +1,11 @@
 # Bug 清单（已全部修复 ✅ 2026-08-30）
 
+## 修复 ✅ 点击任意菜单弹出空白 "tk" 窗口（2026-08-31）
+- **根因**：`main()` 中启动加载窗 `_create_loading_window()`（`tk.Tk()`）先于主窗口创建，成为 tkinter 默认根窗口；被 `_close_loading_window` 销毁后默认根失效。此后页面构建中不带 master 的 `tk.StringVar` / `messagebox` 调用触发 `_get_default_root()`，隐式新建空白 `Tk()`（标题 "tk"），部分页面还抛 "Too early to create variable: no default root window"（见 page_build_error.log / http_page_build_error.log）
+- **修复**：`main()` 中在销毁加载窗后显式执行 `tk._default_root = app`，把默认根窗口指回主窗口
+- **修复（2026-08-31 补充，彻底版）**：仅修 main() 末尾不够——`ToolboxApp.__init__` 里的 `IntVar/StringVar`（`_pdf_out_var` 等持久化变量）在创建时仍挂在加载窗上，加载窗销毁后全部失效，导致所有功能页按钮消失。现已在 `ToolboxApp.__init__` 的 `super().__init__()` 后立即执行 `tk._default_root = self`，确保全部变量注册在主窗口上
+- **待办**：重新用 PyInstaller 打包 exe（当前 dist/TestToolbox.exe 为旧版）
+
 ## 修复 ✅ 生成页重复路径行 + 功能页日志降噪（2026-08-30 第五轮）
 - **重复的"输出路径/开始生成"行**：根因是页面构建中途抛异常（如之前的 r4 NameError）后，半成品 frame 被缓存，重进菜单时控件叠加。修复：页面切换改为每次进入都新建 frame 并整体重建（旧缓存引用被覆盖），不会再出现重复控件
 - **功能页日志降噪**：`_save_current_log` 保存页面日志时过滤 [构建]/迁移/storage/加载/初始化/[启动] 类启动信息，各功能页只显示对应菜单操作的日志；完整记录仍可在"关于"页后台日志查看
