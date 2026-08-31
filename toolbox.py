@@ -445,7 +445,7 @@ def _setup_update_file_log():
 
 
 def _migrate_legacy_storage(log=None):
-    """一次性把旧默认存储位置的数据迁移到当前存储位置。
+    r"""一次性把旧默认存储位置的数据迁移到当前存储位置。
     支持两种迁移：
     1. 从 %LOCALAPPDATA%\TestToolbox 迁移到当前存储位置（旧版本）
     2. 从 exe 所在目录迁移到 exe 所在目录/cache（版本升级）
