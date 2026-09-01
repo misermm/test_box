@@ -1198,7 +1198,7 @@ class LogBuffer:
 
 
 class KeyValueTable(tk.Frame):
-    """带单元格边框的 Key/Value 表格。
+    """带单元格边框的 Key/Value 街格，支持鼠标滚轮滚动。
 
     交互规则：
     - 单击单元格：仅选中该行（整行高亮），不进入编辑
@@ -1217,14 +1217,29 @@ class KeyValueTable(tk.Frame):
         self._entries = {}
         self._next_id = 0
         self._selected = None
+        # Canvas + 内部 Frame 实现滚动
+        self._canvas = tk.Canvas(self, bg="white", highlightthickness=0, bd=0)
+        self._inner = tk.Frame(self._canvas, bg="white")
+        self._canvas_win = self._canvas.create_window((0, 0), window=self._inner, anchor="nw")
+        self._canvas.pack(side="left", fill="both", expand=True)
+        self._inner.bind("<Configure>", lambda e: self._canvas.configure(scrollregion=self._canvas.bbox("all")))
+        self._canvas.bind("<Configure>", self._on_canvas_resize)
+        self._canvas.bind("<MouseWheel>", self._on_mousewheel)
+        self._inner.bind("<MouseWheel>", self._on_mousewheel)
         for i in range(len(self._headings)):
-            self.columnconfigure(i, weight=1)
+            self._inner.columnconfigure(i, weight=1)
         for i, h in enumerate(self._headings):
-            tk.Label(self, text=h, bg="#dfe6ee", fg="#2c3e50",
+            tk.Label(self._inner, text=h, bg="#dfe6ee", fg="#2c3e50",
                      font=("Microsoft YaHei UI", 9, "bold"),
                      relief="solid", bd=1, padx=4, pady=1
                      ).grid(row=0, column=i, sticky="nsew")
-        self.rowconfigure(0, weight=0)
+        self._inner.rowconfigure(0, weight=0)
+
+    def _on_canvas_resize(self, event):
+        self._canvas.itemconfig(self._canvas_win, width=event.width)
+
+    def _on_mousewheel(self, event):
+        self._canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
     def _col_index(self, column):
         if isinstance(column, int):
@@ -1284,7 +1299,7 @@ class KeyValueTable(tk.Frame):
         self._next_id += 1
         r = len(self._ids) + 1
         for c in range(len(self._headings)):
-            e = tk.Entry(self, relief="solid", bd=1, justify="left",
+            e = tk.Entry(self._inner, relief="solid", bd=1, justify="left",
                          font=("Microsoft YaHei UI", 9),
                          state="normal",
                          insertbackground="black", takefocus=False)
@@ -1296,9 +1311,8 @@ class KeyValueTable(tk.Frame):
             e.bind("<FocusOut>", lambda _e, rr=rid, cc=c, en=e: self._end_edit(rr, cc, en))
             e.bind("<Return>", lambda _e, ee=e: ee.master.focus_set())
             self._entries[(rid, c)] = e
-        self.rowconfigure(r, weight=0)
+        self._inner.rowconfigure(r, weight=0)
         self._ids.append(rid)
-        print(f"[DEBUG] KeyValueTable.insert: rid={rid}, r={r}, _ids={self._ids}, _entries keys={list(self._entries.keys())}")
         return rid
 
     def delete(self, *items):
@@ -1363,10 +1377,10 @@ class KeyValueTable(tk.Frame):
         return (en.winfo_x(), en.winfo_y(), en.winfo_width(), en.winfo_height())
 
     def yview(self, *args):
-        pass
+        self._canvas.yview(*args)
 
     def yview_moveto(self, fraction):
-        pass
+        self._canvas.yview_moveto(fraction)
 
 
 class ToolboxApp(tk.Tk):
@@ -3441,6 +3455,7 @@ class ToolboxApp(tk.Tk):
             xscrollcommand=self._ocr_tree_scroll_x.set
         )
         self._ocr_tree.pack(fill="both", expand=True)
+        self._ocr_tree.bind("<MouseWheel>", lambda e: self._ocr_tree.yview_scroll(int(-1 * (e.delta / 120)), "units"))
 
         self._ocr_tree_scroll_y.config(command=self._ocr_tree.yview)
         self._ocr_tree_scroll_x.config(command=self._ocr_tree.xview)
