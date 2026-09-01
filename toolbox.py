@@ -1291,7 +1291,7 @@ class KeyValueTable(tk.Frame):
             e.bind("<Button-1>", lambda _e, rr=rid, cc=c, en=e: self._on_cell_click(rr, cc, en))
             e.bind("<Double-Button-1>", lambda _e, rr=rid, cc=c, en=e: self._on_cell_double(rr, cc, en))
             e.bind("<FocusOut>", lambda _e, rr=rid, cc=c, en=e: self._end_edit(rr, cc, en))
-            e.bind("<Return>", lambda _e, en=en: en.master.focus_set())
+            e.bind("<Return>", lambda _e, ee=e: ee.master.focus_set())
             self._entries[(rid, c)] = e
         self.rowconfigure(r, weight=0)
         self._ids.append(rid)
