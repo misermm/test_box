@@ -1261,15 +1261,19 @@ class KeyValueTable(tk.Frame):
                          readonlybackground=self.SEL_BG if r == rid else self.NORMAL_BG)
         en.configure(state="normal")
         en.focus_set()
+        x = max(0, min(x, en.winfo_width() - 1))
         en.icursor(en.index(f"@{x}"))
 
     def _end_edit(self, rid, c, en):
         """失焦退出编辑，回到只读（内容保留在 Entry 中即最终值）"""
         en.configure(state="readonly")
 
-    def _on_cell_click(self, rid, c, en):
+    def _on_cell_click(self, rid, c, en, event=None):
         """单击：仅选中行，不进入编辑；编辑状态时允许点击定位光标"""
         if en.cget("state") == "normal":
+            if event is not None:
+                x = max(0, min(event.x, en.winfo_width() - 1))
+                en.icursor(en.index(f"@{x}"))
             return
         self._select_row(rid)
         return "break"
@@ -1291,7 +1295,7 @@ class KeyValueTable(tk.Frame):
             e.grid(row=r, column=c, sticky="nsew", ipady=1)
             e.insert(0, str(values[c]) if c < len(values) else "")
             e.configure(state="readonly", readonlybackground="white")
-            e.bind("<Button-1>", lambda _e, rr=rid, cc=c, en=e: self._on_cell_click(rr, cc, en))
+            e.bind("<Button-1>", lambda _e, rr=rid, cc=c, en=e: self._on_cell_click(rr, cc, en, _e))
             e.bind("<Double-Button-1>", lambda _e, rr=rid, cc=c, en=e: self._on_cell_double(rr, cc, en, _e.x))
             e.bind("<FocusOut>", lambda _e, rr=rid, cc=c, en=e: self._end_edit(rr, cc, en))
             e.bind("<Return>", lambda _e, ee=e: ee.master.focus_set())
