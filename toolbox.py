@@ -2825,10 +2825,26 @@ class ToolboxApp(tk.Tk):
         # 导致请求头/请求体/cURL 导入区全部不可见
         main_pane.add(req_frame, minsize=240, height=340)
 
-        # 请求头和请求体横向排列
+        # cURL 导入（先 pack 底部元素，再让 hbox 占剩余空间）
+        curl_frame = tk.Frame(req_frame, bg="#f5f6fa")
+        curl_frame.pack(side="bottom", fill="x", pady=(4, 2))
+        self._curl_text = tk.Text(curl_frame, height=2, font=("Consolas", 10), wrap="word", bg="white")
+        self._curl_text.pack(side="left", fill="x", expand=True, padx=(0, 4))
+        tk.Button(curl_frame, text="导入接口", command=self._import_curl,
+                  bg="#3498db", fg="white", font=("Microsoft YaHei UI", 10, "bold"), width=10).pack(side="left")
+
+        # 发送/清空按钮
+        btn_row = tk.Frame(req_frame, bg="#f5f6fa")
+        btn_row.pack(side="bottom", fill="x", pady=(4, 0))
+        tk.Button(btn_row, text="发送请求", command=self._http_run,
+                  bg="#1abc9c", fg="white",
+                  font=("Microsoft YaHei UI", 11, "bold"), width=14).pack(side="left", padx=(0, 10))
+        tk.Button(btn_row, text="清空响应", command=self._http_clear, width=10).pack(side="left")
+
+        # 请求头和请求体横向排列（最后 pack，fill both 占剩余空间）
         hbox = tk.PanedWindow(req_frame, orient="horizontal", sashrelief="flat",
-                              bg="#d0d0d0", sashwidth=5, opaqueresize=True)  # 各占一半可拖动
-        hbox.pack(fill="x", pady=(0, 4))
+                              bg="#d0d0d0", sashwidth=5, opaqueresize=True)
+        hbox.pack(fill="both", expand=True, pady=(0, 4))
 
         # Left: Headers
         hdr_left = tk.Frame(hbox, bg="#f5f6fa")
@@ -2884,26 +2900,8 @@ class ToolboxApp(tk.Tk):
         tk.Button(btn_frame2, text="添加", command=self._add_body_row, width=6).pack(side="left", fill="x", padx=2, expand=True)
         tk.Button(btn_frame2, text="删除", command=self._del_body_row, width=6).pack(side="left", fill="x", padx=2, expand=True)
 
-        # cURL 导入
-        self.after(0, lambda m="[构建] 请求体区完成": self._notify(m))
-        curl_frame = tk.Frame(req_frame, bg="#f5f6fa")
-        curl_frame.pack(fill="x", pady=(4, 2))
-        self._curl_text = tk.Text(curl_frame, height=2, font=("Consolas", 10), wrap="word", bg="white")
-        self._curl_text.pack(side="left", fill="x", expand=True, padx=(0, 4))
-        tk.Button(curl_frame, text="导入接口", command=self._import_curl,
-                  bg="#3498db", fg="white", font=("Microsoft YaHei UI", 10, "bold"), width=10).pack(side="left")
-
-        # 发送/清空按钮
-        self.after(0, lambda m="[构建] cURL导入区完成": self._notify(m))
-        btn_row = tk.Frame(req_frame, bg="#f5f6fa")
-        btn_row.pack(fill="x", pady=(4, 0))
-        tk.Button(btn_row, text="发送请求", command=self._http_run,
-                  bg="#1abc9c", fg="white",
-                  font=("Microsoft YaHei UI", 11, "bold"), width=14).pack(side="left", padx=(0, 10))
-        tk.Button(btn_row, text="清空响应", command=self._http_clear, width=10).pack(side="left")
-
         # ---- 响应区 ----
-        self.after(0, lambda m="[构建] 发送按钮区完成": self._notify(m))
+        self.after(0, lambda m="[构建] 请求体区完成": self._notify(m))
         resp_frame = tk.Frame(main_pane, bg="#f5f6fa")
         main_pane.add(resp_frame, minsize=140, height=220)  # BUG-01: 保证响应区有可见高度
 
