@@ -1211,12 +1211,12 @@ class KeyValueTable(tk.Frame):
     NORMAL_BG = "white"
 
     def __init__(self, master, headings=("Key", "Value"), height=4, **kw):
-        super().__init__(master, bg="#95a5a6")  # 深灰作为外边框底色
+        super().__init__(master, bg="#95a5a6")
         self._headings = list(headings)
-        self._ids = []          # 行 id 列表（"i0","i1"...）
-        self._entries = {}      # (row_id, col_idx) -> Entry
+        self._ids = []
+        self._entries = {}
         self._next_id = 0
-        self._selected = None   # 当前选中行 id
+        self._selected = None
         for i in range(len(self._headings)):
             self.columnconfigure(i, weight=1)
         for i, h in enumerate(self._headings):
@@ -1226,7 +1226,6 @@ class KeyValueTable(tk.Frame):
                      ).grid(row=0, column=i, sticky="nsew")
         self.rowconfigure(0, weight=0)
 
-    # ---- 内部工具 ----
     def _col_index(self, column):
         if isinstance(column, int):
             return column
@@ -1260,11 +1259,6 @@ class KeyValueTable(tk.Frame):
         for (r, _cc), e2 in self._entries.items():
             e2.configure(bg=self.SEL_BG if r == rid else self.NORMAL_BG,
                          readonlybackground=self.SEL_BG if r == rid else self.NORMAL_BG)
-        # 恢复 'Entry' 类绑定，使键盘输入/光标移动等正常工作
-        tags = list(en.bindtags())
-        if 'Entry' not in tags:
-            tags.insert(0, 'Entry')
-        en.bindtags(tuple(tags))
         en.configure(state="normal")
         en.focus_set()
         en.icursor("end")
@@ -1272,15 +1266,11 @@ class KeyValueTable(tk.Frame):
     def _end_edit(self, rid, c, en):
         """失焦退出编辑，回到只读（内容保留在 Entry 中即最终值）"""
         en.configure(state="readonly")
-        # 再次移除 'Entry' 类绑定，防止失焦后单击又进入编辑
-        tags = list(en.bindtags())
-        if 'Entry' in tags:
-            tags.remove('Entry')
-        en.bindtags(tuple(tags))
 
     def _on_cell_click(self, rid, c, en):
-        # 单击只做行选中，阻止 Entry 获得焦点（不进入编辑）
+        """单击：仅选中行，立即把焦点移回表格区域防止进入编辑"""
         self._select_row(rid)
+        self.after(0, self.focus_set)
         return "break"
 
     def _on_cell_double(self, rid, c, en):
@@ -1296,24 +1286,19 @@ class KeyValueTable(tk.Frame):
             e = tk.Entry(self, relief="solid", bd=1, justify="left",
                          font=("Microsoft YaHei UI", 9),
                          state="readonly", readonlybackground="white",
-                         insertbackground="black")
+                         insertbackground="black", takefocus=False)
             e.grid(row=r, column=c, sticky="nsew", ipady=1)
             e.insert(0, str(values[c]) if c < len(values) else "")
-            # 从 bindtags 中移除 'Entry' 类，阻止其默认 <Button-1> 处理器
-            # 给 Entry 获得焦点（单击只选中行，不进入编辑）
-            tags = list(e.bindtags())
-            if 'Entry' in tags:
-                tags.remove('Entry')
-            e.bindtags(tuple(tags))
-            # 单击：仅选中行；双击：进入编辑；失焦：退出编辑
+            # 单击仅选中行，双击进入编辑，失焦退出编辑
             e.bind("<Button-1>", lambda _e, rr=rid, cc=c, en=e: self._on_cell_click(rr, cc, en))
             e.bind("<Double-Button-1>", lambda _e, rr=rid, cc=c, en=e: self._on_cell_double(rr, cc, en))
             e.bind("<FocusOut>", lambda _e, rr=rid, cc=c, en=e: self._end_edit(rr, cc, en))
             e.bind("<Return>", lambda _e, en=en: en.master.focus_set())
+            # 防止 Entry 因任何原因获得焦点
+            e.bind("<FocusIn>", lambda _e, en=en: self.after(0, lambda: en.master.focus_set() if en.winfo_exists() else None))
             self._entries[(rid, c)] = e
         self.rowconfigure(r, weight=0)
         self._ids.append(rid)
-        self.update_idletasks()
         return rid
 
     def delete(self, *items):
@@ -1376,7 +1361,7 @@ class KeyValueTable(tk.Frame):
         return (en.winfo_x(), en.winfo_y(), en.winfo_width(), en.winfo_height())
 
     def yview(self, *args):
-        pass  # 行数少暂不需要滚动
+        pass
 
     def yview_moveto(self, fraction):
         pass
