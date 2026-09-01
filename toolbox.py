@@ -2828,7 +2828,7 @@ class ToolboxApp(tk.Tk):
         # 请求头和请求体横向排列
         hbox = tk.PanedWindow(req_frame, orient="horizontal", sashrelief="flat",
                               bg="#d0d0d0", sashwidth=5, opaqueresize=True)  # 各占一半可拖动
-        hbox.pack(fill="both", expand=True, pady=(0, 4))
+        hbox.pack(fill="x", pady=(0, 4))
 
         # Left: Headers
         hdr_left = tk.Frame(hbox, bg="#f5f6fa")
