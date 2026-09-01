@@ -1372,6 +1372,9 @@ class KeyValueTable(tk.Frame):
 class ToolboxApp(tk.Tk):
     def __init__(self):
         super().__init__()
+        # 设置ttk样式：Combobox下拉列表白色背景
+        style = ttk.Style()
+        style.configure("TCombobox", fieldbackground="white", background="white")
         # 修复：本窗口创建时默认根还是启动加载窗，若不切换，
         # __init__ 里创建的 IntVar/StringVar 都挂在加载窗上，加载窗销毁后全部失效，
         # 导致所有功能页按钮消失。这里立刻把默认根指回主窗口。
