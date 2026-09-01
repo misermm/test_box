@@ -1575,12 +1575,9 @@ class ToolboxApp(tk.Tk):
         self._menu_canvas = canvas
 
         def _on_mousewheel(event):
-            mx, my = event.x_root, event.y_root
-            fx, fy = self._menu_frame.winfo_rootx(), self._menu_frame.winfo_rooty()
-            fw, fh = self._menu_frame.winfo_width(), self._menu_frame.winfo_height()
-            if fx <= mx <= fx + fw and fy <= my <= fy + fh:
-                canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        canvas.bind("<MouseWheel>", _on_mousewheel)
+        container.bind("<MouseWheel>", _on_mousewheel)
 
         for group, indices in self._MENU_GROUPS:
             if group is None:
