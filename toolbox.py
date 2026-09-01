@@ -1218,17 +1218,20 @@ class KeyValueTable(tk.Frame):
         self._next_id = 0
         self._selected = None
         # 固定表头（不在Canvas内）
-        self._header_frame = tk.Frame(self, bg="#dfe6ee")
+        self._header_frame = tk.Frame(self, bg="#dfe6ee", bd=0, highlightthickness=0)
         self._header_frame.pack(side="top", fill="x")
+        self._header_labels = []
         for i, h in enumerate(self._headings):
             self._header_frame.columnconfigure(i, weight=1)
-            tk.Label(self._header_frame, text=h, bg="#dfe6ee", fg="#2c3e50",
+            lbl = tk.Label(self._header_frame, text=h, bg="#dfe6ee", fg="#2c3e50",
                      font=("Microsoft YaHei UI", 9, "bold"),
                      relief="solid", bd=1, padx=4, pady=1
-                     ).grid(row=0, column=i, sticky="nsew")
+                     )
+            lbl.grid(row=0, column=i, sticky="nsew")
+            self._header_labels.append(lbl)
         # Canvas + 内部 Frame 实现数据行滚动
         self._canvas = tk.Canvas(self, bg="white", highlightthickness=0, bd=0)
-        self._inner = tk.Frame(self._canvas, bg="white")
+        self._inner = tk.Frame(self._canvas, bg="white", bd=0, highlightthickness=0)
         self._canvas_win = self._canvas.create_window((0, 0), window=self._inner, anchor="nw")
         self._canvas.pack(side="left", fill="both", expand=True)
         self._inner.bind("<Configure>", lambda e: self._canvas.configure(scrollregion=self._canvas.bbox("all")))
