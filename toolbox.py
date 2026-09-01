@@ -1197,6 +1197,191 @@ class LogBuffer:
         return data
 
 
+class KeyValueTable(tk.Frame):
+    """带单元格边框的 Key/Value 表格。
+
+    交互规则：
+    - 单击单元格：仅选中该行（整行高亮），不进入编辑
+    - 双击单元格：进入编辑状态，失焦后自动保存并退出编辑
+    - insert：每次调用追加一空行
+    - delete：删除指定行；配合 selection() 可实现"选中删选中行、否则删最后一行"
+    """
+
+    SEL_BG = "#cde5f7"      # 选中行高亮色
+    NORMAL_BG = "white"
+
+    def __init__(self, master, headings=("Key", "Value"), height=4, **kw):
+        super().__init__(master, bg="#95a5a6")  # 深灰作为外边框底色
+        self._headings = list(headings)
+        self._ids = []          # 行 id 列表（"i0","i1"...）
+        self._entries = {}      # (row_id, col_idx) -> Entry
+        self._next_id = 0
+        self._selected = None   # 当前选中行 id
+        for i in range(len(self._headings)):
+            self.columnconfigure(i, weight=1)
+        for i, h in enumerate(self._headings):
+            tk.Label(self, text=h, bg="#dfe6ee", fg="#2c3e50",
+                     font=("Microsoft YaHei UI", 9, "bold"),
+                     relief="solid", bd=1, padx=4, pady=1
+                     ).grid(row=0, column=i, sticky="nsew")
+        self.rowconfigure(0, weight=0)
+
+    # ---- 内部工具 ----
+    def _col_index(self, column):
+        if isinstance(column, int):
+            return column
+        if isinstance(column, str) and column.startswith("#"):
+            try:
+                return int(column[1:]) - 1
+            except ValueError:
+                return 0
+        return 0
+
+    def _relayout(self):
+        """删除行后重排剩余行的 grid 位置"""
+        for ridx, rid in enumerate(self._ids, start=1):
+            for c in range(len(self._headings)):
+                en = self._entries.get((rid, c))
+                if en is not None:
+                    en.grid(row=ridx, column=c, sticky="nsew", ipady=1)
+
+    def _select_row(self, rid):
+        """选中一行：整行高亮；再次点击同一行则取消选中"""
+        if self._selected == rid:
+            rid = None
+        self._selected = rid
+        for (r, _c), en in self._entries.items():
+            en.configure(bg=self.SEL_BG if r == rid else self.NORMAL_BG,
+                         readonlybackground=self.SEL_BG if r == rid else self.NORMAL_BG)
+
+    def _begin_edit(self, rid, c, en):
+        """双击进入编辑"""
+        self._selected = rid
+        for (r, _cc), e2 in self._entries.items():
+            e2.configure(bg=self.SEL_BG if r == rid else self.NORMAL_BG,
+                         readonlybackground=self.SEL_BG if r == rid else self.NORMAL_BG)
+        # 恢复 'Entry' 类绑定，使键盘输入/光标移动等正常工作
+        tags = list(en.bindtags())
+        if 'Entry' not in tags:
+            tags.insert(0, 'Entry')
+        en.bindtags(tuple(tags))
+        en.configure(state="normal")
+        en.focus_set()
+        en.icursor("end")
+
+    def _end_edit(self, rid, c, en):
+        """失焦退出编辑，回到只读（内容保留在 Entry 中即最终值）"""
+        en.configure(state="readonly")
+        # 再次移除 'Entry' 类绑定，防止失焦后单击又进入编辑
+        tags = list(en.bindtags())
+        if 'Entry' in tags:
+            tags.remove('Entry')
+        en.bindtags(tuple(tags))
+
+    def _on_cell_click(self, rid, c, en):
+        # 单击只做行选中，阻止 Entry 获得焦点（不进入编辑）
+        self._select_row(rid)
+        return "break"
+
+    def _on_cell_double(self, rid, c, en):
+        self._begin_edit(rid, c, en)
+        return "break"
+
+    # ---- 兼容原 Treeview 的 API 子集 ----
+    def insert(self, parent, index, values=("", "")):
+        rid = "i%d" % self._next_id
+        self._next_id += 1
+        r = len(self._ids) + 1
+        for c in range(len(self._headings)):
+            e = tk.Entry(self, relief="solid", bd=1, justify="left",
+                         font=("Microsoft YaHei UI", 9),
+                         state="readonly", readonlybackground="white",
+                         insertbackground="black")
+            e.grid(row=r, column=c, sticky="nsew", ipady=1)
+            e.insert(0, str(values[c]) if c < len(values) else "")
+            # 从 bindtags 中移除 'Entry' 类，阻止其默认 <Button-1> 处理器
+            # 给 Entry 获得焦点（单击只选中行，不进入编辑）
+            tags = list(e.bindtags())
+            if 'Entry' in tags:
+                tags.remove('Entry')
+            e.bindtags(tuple(tags))
+            # 单击：仅选中行；双击：进入编辑；失焦：退出编辑
+            e.bind("<Button-1>", lambda _e, rr=rid, cc=c, en=e: self._on_cell_click(rr, cc, en))
+            e.bind("<Double-Button-1>", lambda _e, rr=rid, cc=c, en=e: self._on_cell_double(rr, cc, en))
+            e.bind("<FocusOut>", lambda _e, rr=rid, cc=c, en=e: self._end_edit(rr, cc, en))
+            e.bind("<Return>", lambda _e, en=en: en.master.focus_set())
+            self._entries[(rid, c)] = e
+        self.rowconfigure(r, weight=0)
+        self._ids.append(rid)
+        self.update_idletasks()
+        return rid
+
+    def delete(self, *items):
+        changed = False
+        for it in items:
+            if it in self._ids:
+                for c in range(len(self._headings)):
+                    en = self._entries.pop((it, c), None)
+                    if en is not None:
+                        en.destroy()
+                self._ids.remove(it)
+                changed = True
+        if changed:
+            if self._selected not in self._ids:
+                self._selected = None
+            self._relayout()
+
+    def selection(self):
+        """返回当前选中行；无选中返回空元组"""
+        if self._selected is not None and self._selected in self._ids:
+            return (self._selected,)
+        return ()
+
+    def get_children(self):
+        return list(self._ids)
+
+    def item(self, item_id, option=None):
+        vals = tuple(self._entries[(item_id, c)].get()
+                     for c in range(len(self._headings)))
+        if option == "values":
+            return vals
+        return {"values": vals}
+
+    def set(self, item_id, column, value):
+        c = self._col_index(column)
+        en = self._entries.get((item_id, c))
+        if en is not None:
+            en.delete(0, "end")
+            en.insert(0, str(value))
+
+    def identify_region(self, x, y):
+        return "cell"
+
+    def identify_column(self, x):
+        total = max(self.winfo_width(), 1)
+        n = len(self._headings)
+        return "#%d" % min(int(x * n / total) + 1, n)
+
+    def identify_row(self, y):
+        rowh = 26
+        idx = (y - 22) // rowh
+        if 0 <= idx < len(self._ids):
+            return self._ids[idx]
+        return ""
+
+    def bbox(self, item_id, column=None):
+        en = self._entries.get((item_id, self._col_index(column)))
+        if en is None:
+            return ""
+        return (en.winfo_x(), en.winfo_y(), en.winfo_width(), en.winfo_height())
+
+    def yview(self, *args):
+        pass  # 行数少暂不需要滚动
+
+    def yview_moveto(self, fraction):
+        pass
+
+
 class ToolboxApp(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -1296,8 +1481,11 @@ class ToolboxApp(tk.Tk):
         if not (0.5 <= self._font_scale <= 3.0):
             self._font_scale = 1.0
         self._font_base = {}     # 控件 -> 原始字体信息（首次遍历时记录）
+        _boot_progress(10, "正在构建主窗口...")
         self._build_ui()
+        _boot_progress(70, "主界面构建完成，加载默认页面...")
         self._select_menu(0)
+        _boot_progress(95, "准备就绪")
         # 全局快捷键启动即生效：页面是懒构建的，若只在 OCR 页初始化，
         # 用户不访问该页则快捷键永远不会激活
         self._init_ocr_hotkey()
@@ -1320,6 +1508,7 @@ class ToolboxApp(tk.Tk):
                  font=("Microsoft YaHei UI", 14, "bold")).pack(pady=(20, 10))
 
         self._build_menu(left)
+        _boot_progress(30, "正在构建功能页面...")
 
         right = tk.Frame(self, bg="#f5f6fa")
         right.pack(side="left", fill="both", expand=True)
@@ -1777,7 +1966,11 @@ class ToolboxApp(tk.Tk):
 
     def _pdf_add(self):
         files = filedialog.askopenfilenames(title="选择图片", filetypes=IMAGE_EXTS)
+        # BUG-09: 按绝对路径去重，重复选择（含取消后重选相同文件）不再累积重复项
         for f in files:
+            f = os.path.abspath(f)
+            if f in self._pdf_images:
+                continue
             self._pdf_images.append(f)
             self._pdf_listbox.insert("end", os.path.basename(f))
 
@@ -1840,7 +2033,11 @@ class ToolboxApp(tk.Tk):
 
     def _zip_add(self):
         files = filedialog.askopenfilenames(title="选择图片", filetypes=IMAGE_EXTS)
+        # BUG-09: 同图片转PDF页，添加时按绝对路径去重，避免重复累积
         for f in files:
+            f = os.path.abspath(f)
+            if f in self._zip_images:
+                continue
             self._zip_images.append(f)
             self._zip_listbox.insert("end", os.path.basename(f))
 
@@ -2629,17 +2826,11 @@ class ToolboxApp(tk.Tk):
             "Accept-Language: zh-CN,zh;q=0.9,en;q=0.8")
         self._hdr_table_frame = tk.Frame(self._headers_nb)
         self._headers_nb.add(self._hdr_table_frame, text="表格")
-        self._hdr_tree = ttk.Treeview(self._hdr_table_frame, columns=("key", "value"), show="headings",
-                                               height=4)
-        self._hdr_tree.heading("key", text="Key")
-        self._hdr_tree.heading("value", text="Value")
-        self._hdr_tree.column("key", width=180)
-        self._hdr_tree.column("value", width=300)
+        # BUG-08: 改用带单元格边框的 KeyValueTable（原 Treeview 单元格无边框）
+        self._hdr_tree = KeyValueTable(self._hdr_table_frame, headings=("Key", "Value"), height=4)
         self._hdr_tree.pack(fill="both", expand=True, side="left")
         hdr_scroll = ttk.Scrollbar(self._hdr_table_frame, orient="vertical", command=self._hdr_tree.yview)
         hdr_scroll.pack(side="right", fill="y")
-        self._hdr_tree.configure(yscrollcommand=hdr_scroll.set)
-        self._hdr_tree.bind("<Double-1>", self._on_hdr_tree_double_click)
         btn_frame = tk.Frame(self._hdr_table_frame)
         btn_frame.pack(side="bottom", fill="x", pady=2, before=self._hdr_tree)  # 先保留按钮空间，缩小窗口时不被挤掉
         tk.Button(btn_frame, text="添加", command=self._add_hdr_row, width=6).pack(side="left", fill="x", padx=2, expand=True)
@@ -2660,17 +2851,11 @@ class ToolboxApp(tk.Tk):
         self._http_body_text.pack(fill="both", expand=True)
         self._body_table_frame = tk.Frame(self._body_nb)
         self._body_nb.add(self._body_table_frame, text="表格")
-        self._body_tree = ttk.Treeview(self._body_table_frame, columns=("key", "value"), show="headings",
-                                               height=4)
-        self._body_tree.heading("key", text="Key")
-        self._body_tree.heading("value", text="Value")
-        self._body_tree.column("key", width=180)
-        self._body_tree.column("value", width=300)
+        # BUG-08: 改用带单元格边框的 KeyValueTable（原 Treeview 单元格无边框）
+        self._body_tree = KeyValueTable(self._body_table_frame, headings=("Key", "Value"), height=4)
         self._body_tree.pack(fill="both", expand=True, side="left")
         body_scroll = ttk.Scrollbar(self._body_table_frame, orient="vertical", command=self._body_tree.yview)
         body_scroll.pack(side="right", fill="y")
-        self._body_tree.configure(yscrollcommand=body_scroll.set)
-        self._body_tree.bind("<Double-1>", self._on_body_tree_double_click)
         btn_frame2 = tk.Frame(self._body_table_frame)
         btn_frame2.pack(side="bottom", fill="x", pady=2, before=self._body_tree)  # 先保留按钮空间，缩小窗口时不被挤掉
         tk.Button(btn_frame2, text="添加", command=self._add_body_row, width=6).pack(side="left", fill="x", padx=2, expand=True)
@@ -2725,6 +2910,11 @@ class ToolboxApp(tk.Tk):
 
     def _del_hdr_row(self):
         sel = self._hdr_tree.selection()
+        if not sel:  # 未选中则删除最后一行
+            kids = self._hdr_tree.get_children()
+            if not kids:
+                return
+            sel = (kids[-1],)
         for item in sel:
             self._hdr_tree.delete(item)
 
@@ -2733,6 +2923,11 @@ class ToolboxApp(tk.Tk):
 
     def _del_body_row(self):
         sel = self._body_tree.selection()
+        if not sel:  # 未选中则删除最后一行
+            kids = self._body_tree.get_children()
+            if not kids:
+                return
+            sel = (kids[-1],)
         for item in sel:
             self._body_tree.delete(item)
 
@@ -2801,10 +2996,9 @@ class ToolboxApp(tk.Tk):
     def _sync_tree_to_text(self, tree, text_widget):
         lines = []
         for item in tree.get_children():
-            # BUG-02: 移除无效的 item.text() 判断，统一用 tree.item 取值
             values = tree.item(item, "values")
-            k = values[0] if values else ""
-            # v 取自上方 values（BUG-02 清理）
+            k = values[0] if len(values) > 0 else ""
+            v = values[1] if len(values) > 1 else ""
             lines.append(f"{k}: {v}")
         text_widget.delete("1.0", "end")
         text_widget.insert("1.0", "\n".join(lines))
@@ -4008,40 +4202,105 @@ def _run_selftest():
             logging.error(f"[selftest] FAIL\n{traceback.format_exc()}")
 
 
+class _LoadingWindow:
+    """启动加载窗：确定性进度条（挂钩真实构建阶段）+ 平滑动画显示"""
+
+    def __init__(self):
+        self.win = None
+        self._target = 0.0   # 真实目标进度（由各构建阶段推进，只前进不回退）
+        self._shown = 0.0    # 动画当前显示值
+        self._after_id = None
+        try:
+            win = tk.Tk()
+            win.title("启动中")
+            win.overrideredirect(True)
+            win.attributes("-topmost", True)  # 仅弹出瞬间置顶，随后自动取消，切换应用不挡屏
+            win.configure(bg="white", padx=24, pady=18)
+            w, h = 300, 132
+            sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+            win.geometry(f"{w}x{h}+{(sw - w) // 2}+{(sh - h) // 2}")
+            tk.Label(win, text="测试工具箱 v1.0.0", bg="white", fg="#2c3e50",
+                     font=("Microsoft YaHei UI", 12, "bold")).pack()
+            self._status = tk.Label(win, text="正在初始化...", bg="white", fg="#7f8c8d",
+                                    font=("Microsoft YaHei UI", 9))
+            self._status.pack(pady=(2, 8))
+            self._bar_var = tk.DoubleVar(value=0.0)
+            ttk.Progressbar(win, mode="determinate", maximum=100, length=240,
+                            variable=self._bar_var).pack()
+            win.update()
+            self.win = win
+            self._after_id = win.after(30, self._tick)
+            win.after(1000, lambda: self.win is not None and self.win.attributes("-topmost", False))
+        except Exception:
+            self.win = None
+
+    def _tick(self):
+        """动画循环：显示值平滑逼近真实目标进度"""
+        if self.win is None:
+            return
+        try:
+            self._shown += (self._target - self._shown) * 0.18
+            if self._target >= 100 and self._target - self._shown < 0.5:
+                self._shown = self._target
+            self._bar_var.set(self._shown)
+            self._after_id = self.win.after(30, self._tick)
+        except tk.TclError:
+            self._after_id = None
+
+    def update_progress(self, pct, text=""):
+        """由构建阶段调用：推进真实进度"""
+        if self.win is None:
+            return
+        try:
+            self._target = max(self._target, min(float(pct), 100.0))
+            if text:
+                self._status.config(text=text)
+            self.win.update_idletasks()
+        except tk.TclError:
+            pass
+
+    def destroy(self):
+        if self._after_id is not None and self.win is not None:
+            try:
+                self.win.after_cancel(self._after_id)
+            except Exception:
+                pass
+        if self.win is not None:
+            try:
+                self.win.destroy()
+            except Exception:
+                pass
+            self.win = None
+
+
+# 当前启动加载窗实例（main 中赋值，构建阶段通过 _boot_progress 上报进度）
+_BOOT_LOADER = None
+
+
+def _boot_progress(pct, text=""):
+    """上报启动进度到加载窗；加载窗不存在时静默忽略"""
+    if _BOOT_LOADER is not None:
+        _BOOT_LOADER.update_progress(pct, text)
+
+
 def _create_loading_window():
-    """动态加载窗口：无边框小窗 + 滚动进度条，主窗口就绪后由 _close_loading_window 销毁"""
+    """动态加载窗口：主窗口就绪后由 _close_loading_window 销毁"""
     try:
-        win = tk.Tk()
-        win.title("启动中")
-        win.overrideredirect(True)
-        win.attributes("-topmost", True)
-        win.configure(bg="white", padx=24, pady=18)
-        w, h = 280, 110
-        sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
-        win.geometry(f"{w}x{h}+{(sw - w) // 2}+{(sh - h) // 2}")
-        tk.Label(win, text="测试工具箱", bg="white", fg="#2c3e50",
-                 font=("Microsoft YaHei UI", 12, "bold")).pack()
-        tk.Label(win, text="正在加载组件，请稍候...", bg="white", fg="#7f8c8d",
-                 font=("Microsoft YaHei UI", 9)).pack(pady=(2, 10))
-        bar = ttk.Progressbar(win, mode="indeterminate", maximum=100, length=220)
-        bar.pack()
-        bar.start(12)
-        win.update()
-        return win
+        return _LoadingWindow()
     except Exception:
         return None
 
 
 def _close_loading_window(win):
     """安全销毁加载窗口"""
+    global _BOOT_LOADER
+    _BOOT_LOADER = None
     if win is None:
         return
     try:
         win.destroy()
     except Exception:
         pass
-
-
 def _close_boot_splash():
     """兼容：若存在 PyInstaller 静态启动画面则立即关闭（--splash 打包时生效）"""
     try:
@@ -4053,9 +4312,13 @@ def _close_boot_splash():
 
 def main():
     # 先显示 Tk 加载窗口，再关闭 PyInstaller 启动画面，避免两者之间出现无窗口空窗
+    global _BOOT_LOADER
     loading = _create_loading_window()
+    _BOOT_LOADER = loading
+    _boot_progress(5, "正在初始化...")
     _close_boot_splash()
-    app = ToolboxApp()          # __init__ 内已将默认根切换为主窗口
+    app = ToolboxApp()          # __init__ 内已将默认根切换为主窗口（内部上报 10~95）
+    _boot_progress(100, "启动完成")
     _close_loading_window(loading)  # 此时销毁加载窗不影响任何已创建变量
     # 启动时后台检查模型更新（网络失败不影响使用，仅日志提示）
     _setup_update_file_log()
