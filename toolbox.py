@@ -1217,7 +1217,16 @@ class KeyValueTable(tk.Frame):
         self._entries = {}
         self._next_id = 0
         self._selected = None
-        # Canvas + 内部 Frame 实现滚动
+        # 固定表头（不在Canvas内）
+        self._header_frame = tk.Frame(self, bg="#dfe6ee")
+        self._header_frame.pack(side="top", fill="x")
+        for i, h in enumerate(self._headings):
+            self._header_frame.columnconfigure(i, weight=1)
+            tk.Label(self._header_frame, text=h, bg="#dfe6ee", fg="#2c3e50",
+                     font=("Microsoft YaHei UI", 9, "bold"),
+                     relief="solid", bd=1, padx=4, pady=1
+                     ).grid(row=0, column=i, sticky="nsew")
+        # Canvas + 内部 Frame 实现数据行滚动
         self._canvas = tk.Canvas(self, bg="white", highlightthickness=0, bd=0)
         self._inner = tk.Frame(self._canvas, bg="white")
         self._canvas_win = self._canvas.create_window((0, 0), window=self._inner, anchor="nw")
@@ -1228,12 +1237,6 @@ class KeyValueTable(tk.Frame):
         self._inner.bind("<MouseWheel>", self._on_mousewheel)
         for i in range(len(self._headings)):
             self._inner.columnconfigure(i, weight=1)
-        for i, h in enumerate(self._headings):
-            tk.Label(self._inner, text=h, bg="#dfe6ee", fg="#2c3e50",
-                     font=("Microsoft YaHei UI", 9, "bold"),
-                     relief="solid", bd=1, padx=4, pady=1
-                     ).grid(row=0, column=i, sticky="nsew")
-        self._inner.rowconfigure(0, weight=0)
 
     def _on_canvas_resize(self, event):
         self._canvas.itemconfig(self._canvas_win, width=event.width)
@@ -1297,7 +1300,7 @@ class KeyValueTable(tk.Frame):
     def insert(self, parent, index, values=("", "")):
         rid = "i%d" % self._next_id
         self._next_id += 1
-        r = len(self._ids) + 1
+        r = len(self._ids)
         for c in range(len(self._headings)):
             e = tk.Entry(self._inner, relief="solid", bd=1, justify="left",
                          font=("Microsoft YaHei UI", 9),
