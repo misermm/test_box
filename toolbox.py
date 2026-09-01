@@ -1268,9 +1268,8 @@ class KeyValueTable(tk.Frame):
         en.configure(state="readonly")
 
     def _on_cell_click(self, rid, c, en):
-        """单击：仅选中行，立即把焦点移回表格区域防止进入编辑"""
+        """单击：仅选中行，不进入编辑"""
         self._select_row(rid)
-        self.after(0, self.focus_set)
         return "break"
 
     def _on_cell_double(self, rid, c, en):
@@ -1289,16 +1288,14 @@ class KeyValueTable(tk.Frame):
                          insertbackground="black", takefocus=False)
             e.grid(row=r, column=c, sticky="nsew", ipady=1)
             e.insert(0, str(values[c]) if c < len(values) else "")
-            # 单击仅选中行，双击进入编辑，失焦退出编辑
             e.bind("<Button-1>", lambda _e, rr=rid, cc=c, en=e: self._on_cell_click(rr, cc, en))
             e.bind("<Double-Button-1>", lambda _e, rr=rid, cc=c, en=e: self._on_cell_double(rr, cc, en))
             e.bind("<FocusOut>", lambda _e, rr=rid, cc=c, en=e: self._end_edit(rr, cc, en))
             e.bind("<Return>", lambda _e, en=en: en.master.focus_set())
-            # 防止 Entry 因任何原因获得焦点
-            e.bind("<FocusIn>", lambda _e, en=en: self.after(0, lambda: en.master.focus_set() if en.winfo_exists() else None))
             self._entries[(rid, c)] = e
         self.rowconfigure(r, weight=0)
         self._ids.append(rid)
+        print(f"[DEBUG] KeyValueTable.insert: rid={rid}, r={r}, _ids={self._ids}, _entries keys={list(self._entries.keys())}")
         return rid
 
     def delete(self, *items):
@@ -2892,16 +2889,20 @@ class ToolboxApp(tk.Tk):
 
     def _add_hdr_row(self):
         self._hdr_tree.insert("", "end", values=("", ""))
+        print(f"[DEBUG] _add_hdr_row: _ids={self._hdr_tree.get_children()}, _selected={self._hdr_tree._selected}")
 
     def _del_hdr_row(self):
         sel = self._hdr_tree.selection()
+        print(f"[DEBUG] _del_hdr_row: sel={sel}, _selected={self._hdr_tree._selected}")
         if not sel:  # 未选中则删除最后一行
             kids = self._hdr_tree.get_children()
+            print(f"[DEBUG] _del_hdr_row: kids={kids}")
             if not kids:
                 return
             sel = (kids[-1],)
         for item in sel:
             self._hdr_tree.delete(item)
+        print(f"[DEBUG] _del_hdr_row after delete: _ids={self._hdr_tree.get_children()}")
 
     def _add_body_row(self):
         self._body_tree.insert("", "end", values=("", ""))
