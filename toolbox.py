@@ -1284,10 +1284,11 @@ class KeyValueTable(tk.Frame):
         for c in range(len(self._headings)):
             e = tk.Entry(self, relief="solid", bd=1, justify="left",
                          font=("Microsoft YaHei UI", 9),
-                         state="readonly", readonlybackground="white",
+                         state="normal",
                          insertbackground="black", takefocus=False)
             e.grid(row=r, column=c, sticky="nsew", ipady=1)
             e.insert(0, str(values[c]) if c < len(values) else "")
+            e.configure(state="readonly", readonlybackground="white")
             e.bind("<Button-1>", lambda _e, rr=rid, cc=c, en=e: self._on_cell_click(rr, cc, en))
             e.bind("<Double-Button-1>", lambda _e, rr=rid, cc=c, en=e: self._on_cell_double(rr, cc, en))
             e.bind("<FocusOut>", lambda _e, rr=rid, cc=c, en=e: self._end_edit(rr, cc, en))
@@ -1333,8 +1334,10 @@ class KeyValueTable(tk.Frame):
         c = self._col_index(column)
         en = self._entries.get((item_id, c))
         if en is not None:
+            en.configure(state="normal")
             en.delete(0, "end")
             en.insert(0, str(value))
+            en.configure(state="readonly", readonlybackground="white")
 
     def identify_region(self, x, y):
         return "cell"
