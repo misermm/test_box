@@ -1550,10 +1550,8 @@ class ToolboxApp(tk.Tk):
         """构建二级分组菜单：组头可折叠/展开，组内为功能项；独立功能直接一级显示"""
         self._menu_item_labels = {}  # 页面索引 -> 菜单项 label
         canvas = tk.Canvas(parent, bg="#2c3e50", highlightthickness=0)
-        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=lambda *a: None)
         container = tk.Frame(canvas, bg="#2c3e50", padx=8, pady=8)
-        canvas.configure(yscrollcommand=scrollbar.set)
-        scrollbar.pack(side="right", fill="y")
         canvas.pack(side="left", fill="both", expand=True)
         canvas.create_window((0, 0), window=container, anchor="nw")
         container.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
