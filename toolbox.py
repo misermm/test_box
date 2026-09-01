@@ -1577,6 +1577,7 @@ class ToolboxApp(tk.Tk):
 
         def _on_mousewheel(event):
             canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        self._menu_on_mousewheel = _on_mousewheel
         canvas.bind("<MouseWheel>", _on_mousewheel)
         container.bind("<MouseWheel>", _on_mousewheel)
 
@@ -1604,6 +1605,8 @@ class ToolboxApp(tk.Tk):
                     h.config(text="▾ " + g)
 
             header.bind("<Button-1>", lambda e, t=_toggle: t())
+            header.bind("<MouseWheel>", _on_mousewheel)
+            body.bind("<MouseWheel>", _on_mousewheel)
             for idx in indices:
                 self._make_menu_item(body, idx, indent=True)
 
@@ -1627,6 +1630,7 @@ class ToolboxApp(tk.Tk):
         label.bind("<Enter>", _hover)
         label.bind("<Leave>", _leave)
         label.bind("<Button-1>", lambda e: self._select_menu(index))
+        label.bind("<MouseWheel>", self._menu_on_mousewheel)
         self._menu_item_labels[index] = label
 
     def _update_menu_highlight(self):
