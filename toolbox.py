@@ -1217,19 +1217,7 @@ class KeyValueTable(tk.Frame):
         self._entries = {}
         self._next_id = 0
         self._selected = None
-        # 固定表头（不在Canvas内）
-        self._header_frame = tk.Frame(self, bg="#dfe6ee", bd=0, highlightthickness=0)
-        self._header_frame.pack(side="top", fill="x")
-        self._header_labels = []
-        for i, h in enumerate(self._headings):
-            self._header_frame.columnconfigure(i, weight=1)
-            lbl = tk.Label(self._header_frame, text=h, bg="#dfe6ee", fg="#2c3e50",
-                     font=("Microsoft YaHei UI", 9, "bold"),
-                     relief="solid", bd=1, padx=4, pady=1
-                     )
-            lbl.grid(row=0, column=i, sticky="nsew")
-            self._header_labels.append(lbl)
-        # Canvas + 内部 Frame 实现数据行滚动
+        # Canvas + 内部 Frame
         self._canvas = tk.Canvas(self, bg="white", highlightthickness=0, bd=0)
         self._inner = tk.Frame(self._canvas, bg="white", bd=0, highlightthickness=0)
         self._canvas_win = self._canvas.create_window((0, 0), window=self._inner, anchor="nw")
@@ -1240,9 +1228,26 @@ class KeyValueTable(tk.Frame):
         self._inner.bind("<MouseWheel>", self._on_mousewheel)
         for i in range(len(self._headings)):
             self._inner.columnconfigure(i, weight=1)
+        # 表头：用place固定在Canvas顶部，与数据列天然对齐
+        self._header_height = 26
+        self._header_labels = []
+        for i, h in enumerate(self._headings):
+            lbl = tk.Label(self._canvas, text=h, bg="#dfe6ee", fg="#2c3e50",
+                     font=("Microsoft YaHei UI", 9, "bold"),
+                     relief="solid", bd=1, padx=4, pady=1)
+            lbl.place(x=0, y=0, relwidth=1.0/len(self._headings), height=self._header_height)
+            self._header_labels.append(lbl)
+        # 数据行从y=header_height开始（占位行）
+        spacer = tk.Frame(self._inner, height=self._header_height, bg="white", bd=0, highlightthickness=0)
+        spacer.grid(row=0, column=0, columnspan=len(self._headings), sticky="nsew")
+        self._inner.rowconfigure(0, minsize=self._header_height)
 
     def _on_canvas_resize(self, event):
         self._canvas.itemconfig(self._canvas_win, width=event.width)
+        # 更新表头列宽
+        col_w = event.width // len(self._headings)
+        for i, lbl in enumerate(self._header_labels):
+            lbl.place(x=i * col_w, y=0, width=col_w, height=self._header_height)
 
     def _on_mousewheel(self, event):
         self._canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
@@ -1303,7 +1308,7 @@ class KeyValueTable(tk.Frame):
     def insert(self, parent, index, values=("", "")):
         rid = "i%d" % self._next_id
         self._next_id += 1
-        r = len(self._ids)
+        r = len(self._ids) + 1  # +1 因为 row 0 是表头占位行
         for c in range(len(self._headings)):
             e = tk.Entry(self._inner, relief="solid", bd=1, justify="left",
                          font=("Microsoft YaHei UI", 9),
