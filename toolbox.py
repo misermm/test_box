@@ -3923,7 +3923,7 @@ class ToolboxApp(tk.Tk):
 
         row1 = self._row(self.content)
         self._label(row1, "注入类型:").pack(side="left")
-        self._security_type_var = tk.StringVar(value="sql")
+        self._security_type_var = tk.StringVar(value="SQL注入")
         types = ["sql", "xss", "cmd", "ldap", "nosql"]
         type_names = {"sql": "SQL注入", "xss": "XSS脚本注入", "cmd": "命令注入", "ldap": "LDAP注入", "nosql": "NoSQL注入"}
         ttk.Combobox(row1, textvariable=self._security_type_var,
