@@ -1556,7 +1556,10 @@ class ToolboxApp(tk.Tk):
         canvas.pack(side="left", fill="both", expand=True)
         canvas.create_window((0, 0), window=container, anchor="nw")
         container.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.bind("<MouseWheel>", lambda e: canvas.yview_scroll(int(-1 * (e.delta / 120)), "units"))
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        canvas.bind("<MouseWheel>", _on_mousewheel)
+        container.bind("<MouseWheel>", _on_mousewheel)
 
         for group, indices in self._MENU_GROUPS:
             if group is None:
