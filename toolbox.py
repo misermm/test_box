@@ -192,11 +192,13 @@ def _ocr_model_dir(name):
     """模型文件所在目录：优先当前模型源（内置或已更新的外部目录），其次外部目录。
     可选模型（server 等）只存在于外部目录。找不到返回 None。
     完整性校验（目录含 inference.yml）：下载中断会留下半成品目录，
-    若只判 isdir 会误判"已就绪"，随后流水线加载报晦涩错误。"""
+    若只判 isdir 会误判"已就绪"，随后流水线加载报晦涩错误。
+    兼容：同时尝试 name 和 name_infer（官方模型目录名带 _infer 后缀）。"""
     for root in (_MODELS_DIR, _external_models_dir()):
-        d = os.path.join(root, "official_models", name)
-        if os.path.isfile(os.path.join(d, "inference.yml")):
-            return d
+        for suffix in ("", "_infer"):
+            d = os.path.join(root, "official_models", name + suffix)
+            if os.path.isfile(os.path.join(d, "inference.yml")):
+                return d
     return None
 
 
@@ -214,13 +216,17 @@ def _load_models_manifest(models_dir):
 
 
 def _models_dir_complete(models_dir):
-    """模型目录是否完整：manifest 记录了全部所需模型且对应目录都存在"""
+    """模型目录是否完整：manifest 记录了全部所需模型且对应目录都存在（兼容 _infer 后缀）"""
     manifest = _load_models_manifest(models_dir)
     if manifest is None:
         return False
     official = os.path.join(models_dir, "official_models")
-    return all(name in manifest and os.path.isdir(os.path.join(official, name))
-               for name in _TABLE_MODEL_NAMES)
+    return all(
+        (name in manifest or (name + "_infer") in manifest) and
+        (os.path.isdir(os.path.join(official, name)) or
+         os.path.isdir(os.path.join(official, name + "_infer")))
+        for name in _TABLE_MODEL_NAMES
+    )
 
 
 _MODELS_DIR = (_EXTERNAL_MODELS_DIR if _models_dir_complete(_EXTERNAL_MODELS_DIR)
