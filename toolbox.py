@@ -1204,7 +1204,7 @@ class LogBuffer:
 
 
 class KeyValueTable(tk.Frame):
-    """带单元格边框的 Key/Value 街格，支持鼠标滚轮滚动。
+    """带单元格边框的 Key/Value 表格，支持鼠标滚轮滚动。
 
     交互规则：
     - 单击单元格：仅选中该行（整行高亮），不进入编辑
@@ -1215,6 +1215,8 @@ class KeyValueTable(tk.Frame):
 
     SEL_BG = "#cde5f7"      # 选中行高亮色
     NORMAL_BG = "white"
+    HEADER_BG = "#dfe6ee"
+    ROW_H = 26
 
     def __init__(self, master, headings=("Key", "Value"), height=4, **kw):
         super().__init__(master, bg="#95a5a6")
@@ -1223,20 +1225,7 @@ class KeyValueTable(tk.Frame):
         self._entries = {}
         self._next_id = 0
         self._selected = None
-        self._ROW_H = 26
-        # 表头 Canvas（固定高度，不滚动）
-        self._header_canvas = tk.Canvas(self, bg="#95a5a6", highlightthickness=0, bd=0, height=self._ROW_H)
-        self._header_canvas.pack(side="top", fill="x")
-        self._header_inner = tk.Frame(self._header_canvas, bg="#95a5a6")
-        self._header_win = self._header_canvas.create_window((0, 0), window=self._header_inner, anchor="nw")
-        self._header_labels = []
-        for i, h in enumerate(self._headings):
-            lbl = tk.Label(self._header_inner, text=h, bg="#dfe6ee", fg="#2c3e50",
-                     font=("Microsoft YaHei UI", 9, "bold"),
-                     relief="solid", bd=1)
-            lbl.place(x=0, y=0, width=100, height=self._ROW_H)
-            self._header_labels.append(lbl)
-        # 数据 Canvas（可滚动）
+        # Canvas + 内部 Frame（数据区，可滚动）
         self._canvas = tk.Canvas(self, bg="white", highlightthickness=0, bd=0)
         self._inner = tk.Frame(self._canvas, bg="white", bd=0, highlightthickness=0)
         self._canvas_win = self._canvas.create_window((0, 0), window=self._inner, anchor="nw")
@@ -1245,12 +1234,24 @@ class KeyValueTable(tk.Frame):
         self._canvas.bind("<Configure>", self._on_canvas_resize)
         self._canvas.bind("<MouseWheel>", self._on_mousewheel)
         self._inner.bind("<MouseWheel>", self._on_mousewheel)
+        # 列宽：全部等分拉伸
+        n = len(self._headings)
+        for i in range(n):
+            self._inner.columnconfigure(i, weight=1)
+        # 表头：grid 放入 _inner 第0行，与数据列共用列宽，天然对齐不截断
+        self._header_labels = []
+        for i, h in enumerate(self._headings):
+            lbl = tk.Label(self._inner, text=h, bg=self.HEADER_BG, fg="#2c3e50",
+                           font=("Microsoft YaHei UI", 9, "bold"),
+                           relief="solid", bd=1, padx=4, pady=1)
+            lbl.grid(row=0, column=i, sticky="nsew", ipady=1)
+            lbl.bind("<MouseWheel>", self._on_mousewheel)
+            self._header_labels.append(lbl)
+        self._inner.rowconfigure(0, minsize=self.ROW_H)
 
     def _on_canvas_resize(self, event):
-        w = event.width
-        self._canvas.itemconfig(self._canvas_win, width=w)
-        self._header_canvas.itemconfig(self._header_win, width=w)
-        self._relayout()
+        self._canvas.itemconfig(self._canvas_win, width=event.width)
+
     def _on_mousewheel(self, event):
         self._canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
@@ -1265,17 +1266,12 @@ class KeyValueTable(tk.Frame):
         return 0
 
     def _relayout(self):
-        """用 place 统一定位表头和数据行，确保列边界对齐"""
-        n = len(self._headings)
-        w = max(self._header_canvas.winfo_width(), 1)
-        col_w = w // n
-        for i, lbl in enumerate(self._header_labels):
-            lbl.place(x=i * col_w, y=0, width=col_w, height=self._ROW_H)
-        for ridx, rid in enumerate(self._ids):
-            for c in range(n):
+        """删除行后重排剩余行的 grid 位置"""
+        for ridx, rid in enumerate(self._ids, start=1):
+            for c in range(len(self._headings)):
                 en = self._entries.get((rid, c))
                 if en is not None:
-                    en.place(x=c * col_w, y=(ridx + 1) * self._ROW_H, width=col_w, height=self._ROW_H)
+                    en.grid(row=ridx, column=c, sticky="nsew", ipady=1)
 
     def _select_row(self, rid):
         """选中一行：整行高亮；再次点击同一行则取消选中"""
@@ -1319,14 +1315,13 @@ class KeyValueTable(tk.Frame):
     def insert(self, parent, index, values=("", "")):
         rid = "i%d" % self._next_id
         self._next_id += 1
-        r = len(self._ids)
-        n = len(self._headings)
-        for c in range(n):
+        r = len(self._ids) + 1  # +1 因为 row 0 是表头行
+        for c in range(len(self._headings)):
             e = tk.Entry(self._inner, relief="solid", bd=1, justify="left",
                          font=("Microsoft YaHei UI", 9),
                          state="normal",
                          insertbackground="black", takefocus=False)
-            e.place(x=0, y=(r + 1) * self._ROW_H, width=100, height=self._ROW_H)
+            e.grid(row=r, column=c, sticky="nsew", ipady=1)
             e.insert(0, str(values[c]) if c < len(values) else "")
             e.configure(state="readonly", readonlybackground="white")
             e.bind("<Button-1>", lambda _e, rr=rid, cc=c, en=e: self._on_cell_click(rr, cc, en, _e))
@@ -1335,8 +1330,8 @@ class KeyValueTable(tk.Frame):
             e.bind("<Return>", lambda _e, ee=e: ee.master.focus_set())
             e.bind("<MouseWheel>", self._on_mousewheel)
             self._entries[(rid, c)] = e
+        self._inner.rowconfigure(r, weight=0)
         self._ids.append(rid)
-        self.after(1, self._relayout)
         return rid
 
     def delete(self, *items):
@@ -1388,7 +1383,7 @@ class KeyValueTable(tk.Frame):
         return "#%d" % min(int(x * n / total) + 1, n)
 
     def identify_row(self, y):
-        idx = y // self._ROW_H
+        idx = y // self.ROW_H
         if 0 <= idx < len(self._ids):
             return self._ids[idx]
         return ""
