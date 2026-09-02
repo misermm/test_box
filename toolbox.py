@@ -1223,18 +1223,18 @@ class KeyValueTable(tk.Frame):
         self._entries = {}
         self._next_id = 0
         self._selected = None
+        self._ROW_H = 26
         # 表头 Canvas（固定高度，不滚动）
-        self._header_canvas = tk.Canvas(self, bg="#95a5a6", highlightthickness=0, bd=0, height=26)
+        self._header_canvas = tk.Canvas(self, bg="#95a5a6", highlightthickness=0, bd=0, height=self._ROW_H)
         self._header_canvas.pack(side="top", fill="x")
         self._header_inner = tk.Frame(self._header_canvas, bg="#95a5a6")
         self._header_win = self._header_canvas.create_window((0, 0), window=self._header_inner, anchor="nw")
         self._header_labels = []
         for i, h in enumerate(self._headings):
-            self._header_inner.columnconfigure(i, weight=1)
             lbl = tk.Label(self._header_inner, text=h, bg="#dfe6ee", fg="#2c3e50",
                      font=("Microsoft YaHei UI", 9, "bold"),
-                     relief="solid", bd=1, padx=4, pady=1)
-            lbl.grid(row=0, column=i, sticky="nsew")
+                     relief="solid", bd=1)
+            lbl.place(x=0, y=0, width=100, height=self._ROW_H)
             self._header_labels.append(lbl)
         # 数据 Canvas（可滚动）
         self._canvas = tk.Canvas(self, bg="white", highlightthickness=0, bd=0)
@@ -1245,12 +1245,12 @@ class KeyValueTable(tk.Frame):
         self._canvas.bind("<Configure>", self._on_canvas_resize)
         self._canvas.bind("<MouseWheel>", self._on_mousewheel)
         self._inner.bind("<MouseWheel>", self._on_mousewheel)
-        for i in range(len(self._headings)):
-            self._inner.columnconfigure(i, weight=1)
 
     def _on_canvas_resize(self, event):
-        self._canvas.itemconfig(self._canvas_win, width=event.width)
-        self._header_canvas.itemconfig(self._header_win, width=event.width)
+        w = event.width
+        self._canvas.itemconfig(self._canvas_win, width=w)
+        self._header_canvas.itemconfig(self._header_win, width=w)
+        self._relayout()
     def _on_mousewheel(self, event):
         self._canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
@@ -1265,12 +1265,17 @@ class KeyValueTable(tk.Frame):
         return 0
 
     def _relayout(self):
-        """删除行后重排剩余行的 grid 位置"""
-        for ridx, rid in enumerate(self._ids, start=0):
-            for c in range(len(self._headings)):
+        """用 place 统一定位表头和数据行，确保列边界对齐"""
+        n = len(self._headings)
+        w = max(self._header_canvas.winfo_width(), 1)
+        col_w = w // n
+        for i, lbl in enumerate(self._header_labels):
+            lbl.place(x=i * col_w, y=0, width=col_w, height=self._ROW_H)
+        for ridx, rid in enumerate(self._ids):
+            for c in range(n):
                 en = self._entries.get((rid, c))
                 if en is not None:
-                    en.grid(row=ridx, column=c, sticky="nsew", ipady=1)
+                    en.place(x=c * col_w, y=(ridx + 1) * self._ROW_H, width=col_w, height=self._ROW_H)
 
     def _select_row(self, rid):
         """选中一行：整行高亮；再次点击同一行则取消选中"""
@@ -1314,13 +1319,16 @@ class KeyValueTable(tk.Frame):
     def insert(self, parent, index, values=("", "")):
         rid = "i%d" % self._next_id
         self._next_id += 1
-        r = len(self._ids)  # 数据行从 row 0 开始（表头已移至 Canvas 外）
-        for c in range(len(self._headings)):
+        r = len(self._ids)
+        n = len(self._headings)
+        w = max(self._header_canvas.winfo_width(), 1)
+        col_w = w // n
+        for c in range(n):
             e = tk.Entry(self._inner, relief="solid", bd=1, justify="left",
                          font=("Microsoft YaHei UI", 9),
                          state="normal",
                          insertbackground="black", takefocus=False)
-            e.grid(row=r, column=c, sticky="nsew", ipady=1)
+            e.place(x=c * col_w, y=(r + 1) * self._ROW_H, width=col_w, height=self._ROW_H)
             e.insert(0, str(values[c]) if c < len(values) else "")
             e.configure(state="readonly", readonlybackground="white")
             e.bind("<Button-1>", lambda _e, rr=rid, cc=c, en=e: self._on_cell_click(rr, cc, en, _e))
@@ -1329,7 +1337,6 @@ class KeyValueTable(tk.Frame):
             e.bind("<Return>", lambda _e, ee=e: ee.master.focus_set())
             e.bind("<MouseWheel>", self._on_mousewheel)
             self._entries[(rid, c)] = e
-        self._inner.rowconfigure(r, weight=0)
         self._ids.append(rid)
         return rid
 
