@@ -30,6 +30,10 @@ if not exist models (
     )
 )
 
+echo   Stopping running TestToolbox.exe if any...
+taskkill /F /IM TestToolbox.exe >nul 2>&1
+rem Wait for file lock release to avoid WinError 5 when PyInstaller overwrites dist\TestToolbox.exe
+timeout /t 2 /nobreak >nul
 echo [2/3] Building exe (onefile + incremental cache)...
 .venv\Scripts\python.exe -m PyInstaller ^
   --onefile --noconsole --noconfirm --runtime-tmpdir "cache" ^
