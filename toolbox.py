@@ -1223,18 +1223,20 @@ class KeyValueTable(tk.Frame):
         self._entries = {}
         self._next_id = 0
         self._selected = None
-        # 表头（固定在顶部，不参与滚动）— 与数据共享同一个 grid 容器确保列对齐
-        self._header_frame = tk.Frame(self, bg="#95a5a6")
-        self._header_frame.pack(side="top", fill="x")
+        # 表头 Canvas（固定高度，不滚动）
+        self._header_canvas = tk.Canvas(self, bg="#95a5a6", highlightthickness=0, bd=0, height=26)
+        self._header_canvas.pack(side="top", fill="x")
+        self._header_inner = tk.Frame(self._header_canvas, bg="#95a5a6")
+        self._header_win = self._header_canvas.create_window((0, 0), window=self._header_inner, anchor="nw")
         self._header_labels = []
         for i, h in enumerate(self._headings):
-            self._header_frame.columnconfigure(i, weight=1)
-            lbl = tk.Label(self._header_frame, text=h, bg="#dfe6ee", fg="#2c3e50",
+            self._header_inner.columnconfigure(i, weight=1)
+            lbl = tk.Label(self._header_inner, text=h, bg="#dfe6ee", fg="#2c3e50",
                      font=("Microsoft YaHei UI", 9, "bold"),
                      relief="solid", bd=1, padx=4, pady=1)
             lbl.grid(row=0, column=i, sticky="nsew")
             self._header_labels.append(lbl)
-        # Canvas + 内部 Frame（仅数据行滚动）
+        # 数据 Canvas（可滚动）
         self._canvas = tk.Canvas(self, bg="white", highlightthickness=0, bd=0)
         self._inner = tk.Frame(self._canvas, bg="white", bd=0, highlightthickness=0)
         self._canvas_win = self._canvas.create_window((0, 0), window=self._inner, anchor="nw")
@@ -1248,7 +1250,7 @@ class KeyValueTable(tk.Frame):
 
     def _on_canvas_resize(self, event):
         self._canvas.itemconfig(self._canvas_win, width=event.width)
-        self._header_frame.configure(width=event.width)
+        self._header_canvas.itemconfig(self._header_win, width=event.width)
     def _on_mousewheel(self, event):
         self._canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
