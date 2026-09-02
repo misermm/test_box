@@ -2199,7 +2199,7 @@ class ToolboxApp(tk.Tk):
                                          encoding=encoding, fmt=fmt)
             names = verify_archive_names(out, encoding=encoding, fmt=fmt)
             preview = "、".join(n for _, n in names[:3])
-            self._notify("已生成: %s（按 %s 编码，回读文件名: %s%s）" % (
+            self._notify("已生成: %s（按 %s 编码，回读文件名: %s%s。注: 文件名中含 ? 表示该字符无法用此编码表示，已被替换写入）" % (
                 out, encoding, preview, " ..." if len(names) > 3 else ""))
         except Exception as e:
             self._notify("生成失败: %s" % e)
