@@ -9,8 +9,9 @@
 pyinstaller TestToolbox.spec --noconfirm
 ```
 
-- 构建配置在 `TestToolbox.spec` 文件中，包括所有 `--collect-all`、`--add-data`、`--exclude-module`、`upx_exclude` 等设置
-- 优化项：通过 `excludes` 排除 paddle 训练/实验模块（distributed/incubate/static/cuda/tensorrt），通过 `upx_exclude` 跳过 paddle DLL 的 UPX 压缩
+- 构建配置在 `TestToolbox.spec` 文件中，包括所有 `--collect-all`、`--add-data`、`upx_exclude` 等设置
+- 优化项：通过 `_get_paddle_excludes()` 自动检测 paddle 中可排除的子模块（训练/实验/部署相关），通过 `upx_exclude` 跳过 paddle DLL 的 UPX 压缩
+- `excludes` 列表由 `_get_paddle_excludes()` 自动生成，扫描 `.venv/Lib/site-packages/paddle/` 子目录，匹配排除模式：distributed/incubate/static/cuda/tensorrt/api_tracer/cinn_config/cost_model/hapi/dataset/geometric/metric/profiler/quantization/reader/optimizer/decomposition/sparse/pir
 - 增量缓存：保留 `build/` 目录以加速后续构建，仅在检测到缓存损坏时自动清理
 - 产物：`dist/TestToolbox.exe`（单文件可直接运行，约 250MB，模型已内置）
 - 杀软误报缓解：`--icon icon.ico` + `--version-file version.txt` 为 exe
