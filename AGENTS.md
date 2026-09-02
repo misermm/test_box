@@ -6,21 +6,12 @@
 - 每次修改代码后都必须重新打包 exe（用户要求，必须遵守）：
 
 ```powershell
-.venv\Scripts\python.exe -m PyInstaller --onefile --noconsole --name "TestToolbox" `
-  --icon icon.ico `
-  --version-file version.txt `
-  --collect-all PIL `
-  --collect-all cv2 `
-  --collect-all paddle `
-  --collect-all pyclipper `
-  --collect-all shapely `
-  --collect-all paddlex `
-  --add-data ".venv\Lib\site-packages\paddle\libs;paddle\libs" `
-  --add-data "models;models" `
-  toolbox.py
+pyinstaller TestToolbox.spec --noconfirm
 ```
 
-- 打包后清理临时文件：删除 `build/` 目录和 `*.spec` 文件
+- 构建配置在 `TestToolbox.spec` 文件中，包括所有 `--collect-all`、`--add-data`、`--exclude-module`、`upx_exclude` 等设置
+- 优化项：通过 `excludes` 排除 paddle 训练/实验模块（distributed/incubate/static/cuda/tensorrt），通过 `upx_exclude` 跳过 paddle DLL 的 UPX 压缩
+- 增量缓存：保留 `build/` 目录以加速后续构建，仅在检测到缓存损坏时自动清理
 - 产物：`dist/TestToolbox.exe`（单文件可直接运行，约 250MB，模型已内置）
 - 杀软误报缓解：`--icon icon.ico` + `--version-file version.txt` 为 exe
   附加图标与版本资源（无版本信息/无图标的"三无"exe 在杀软启发式检测中
