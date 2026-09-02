@@ -32,7 +32,8 @@ if not exist models (
 
 echo   Stopping running TestToolbox.exe if any...
 taskkill /F /IM TestToolbox.exe >nul 2>&1
-rem Wait for file lock release to avoid WinError 5 when PyInstaller overwrites dist\TestToolbox.exe
+timeout /t 2 /nobreak >nul
+taskkill /F /IM TestToolbox.exe >nul 2>&1
 timeout /t 2 /nobreak >nul
 echo [2/3] Building exe (spec file + incremental cache)...
 if exist build\TestToolbox\TestToolbox.pkg if not exist build\TestToolbox\PYZ-00.pyz (

@@ -32,6 +32,8 @@ if (-not (Test-Path "models")) {
 Write-Host "[2/3] Stopping running exe..." -ForegroundColor Yellow
 $null = taskkill /F /IM TestToolbox.exe 2>$null
 Start-Sleep -Seconds 2
+$null = taskkill /F /IM TestToolbox.exe 2>$null
+Start-Sleep -Seconds 2
 
 Write-Host "[3/3] Building exe (spec file + incremental cache)..." -ForegroundColor Yellow
 if (Test-Path "build\TestToolbox\TestToolbox.pkg") {

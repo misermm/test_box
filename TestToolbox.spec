@@ -3,7 +3,17 @@ from PyInstaller.utils.hooks import collect_all
 
 datas = [('.venv/Lib/site-packages/paddle/libs', 'paddle/libs'), ('models', 'models')]
 binaries = []
-hiddenimports = []
+hiddenimports = [
+    'image_to_pdf',
+    'file_splitter',
+    'zip_encoder',
+    'generate_file',
+    'generate_text',
+    'generate_person',
+    'url_codec',
+    'http_client',
+    'json_fmt',
+]
 tmp_ret = collect_all('PIL')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('cv2')
