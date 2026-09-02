@@ -1321,14 +1321,12 @@ class KeyValueTable(tk.Frame):
         self._next_id += 1
         r = len(self._ids)
         n = len(self._headings)
-        w = max(self._header_canvas.winfo_width(), 1)
-        col_w = w // n
         for c in range(n):
             e = tk.Entry(self._inner, relief="solid", bd=1, justify="left",
                          font=("Microsoft YaHei UI", 9),
                          state="normal",
                          insertbackground="black", takefocus=False)
-            e.place(x=c * col_w, y=(r + 1) * self._ROW_H, width=col_w, height=self._ROW_H)
+            e.place(x=0, y=(r + 1) * self._ROW_H, width=100, height=self._ROW_H)
             e.insert(0, str(values[c]) if c < len(values) else "")
             e.configure(state="readonly", readonlybackground="white")
             e.bind("<Button-1>", lambda _e, rr=rid, cc=c, en=e: self._on_cell_click(rr, cc, en, _e))
@@ -1338,6 +1336,7 @@ class KeyValueTable(tk.Frame):
             e.bind("<MouseWheel>", self._on_mousewheel)
             self._entries[(rid, c)] = e
         self._ids.append(rid)
+        self.after(1, self._relayout)
         return rid
 
     def delete(self, *items):
@@ -1389,8 +1388,7 @@ class KeyValueTable(tk.Frame):
         return "#%d" % min(int(x * n / total) + 1, n)
 
     def identify_row(self, y):
-        rowh = 26
-        idx = (y - 22) // rowh
+        idx = y // self._ROW_H
         if 0 <= idx < len(self._ids):
             return self._ids[idx]
         return ""
