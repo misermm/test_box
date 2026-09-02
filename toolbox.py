@@ -1228,10 +1228,11 @@ class KeyValueTable(tk.Frame):
         self._header_frame.pack(side="top", fill="x")
         self._header_labels = []
         for i, h in enumerate(self._headings):
+            self._header_frame.columnconfigure(i, weight=1)
             lbl = tk.Label(self._header_frame, text=h, bg="#dfe6ee", fg="#2c3e50",
                      font=("Microsoft YaHei UI", 9, "bold"),
                      relief="solid", bd=1, padx=4, pady=1)
-            lbl.pack(side="left", fill="x", expand=True)
+            lbl.grid(row=0, column=i, sticky="nsew")
             self._header_labels.append(lbl)
         # Canvas + 内部 Frame（仅数据行滚动）
         self._canvas = tk.Canvas(self, bg="white", highlightthickness=0, bd=0)
