@@ -283,6 +283,7 @@ logging.basicConfig(
 
 from image_to_pdf import merge_images_to_pdf, convert_images_to_zip
 from file_splitter import split_to_zip, merge_zip_files
+from zip_encoder import create_archive_with_encoding, verify_archive_names
 from generate_file import create_file, CORRUPT_METHODS, TYPE_CORRUPT_METHODS
 from generate_text import generate_text, TEXT_TYPES
 from generate_person import generate_person, generate_id_card, generate_name, generate_phone
@@ -1442,6 +1443,10 @@ class ToolboxApp(tk.Tk):
         self._split_prefix_var = tk.StringVar(value="part")
         self._merge_files = []
         self._merge_out_var = tk.StringVar(value=DEFAULT_DATA)
+        self._enc_files = []
+        self._enc_out_var = tk.StringVar(value=DEFAULT_DATA)
+        self._enc_codec_var = tk.StringVar(value="UTF-8")
+        self._enc_fmt_var = tk.StringVar(value="zip")
         self._gen_size_var = tk.StringVar(value="101")
         self._gen_type_var = tk.StringVar(value="zip")
         self._gen_corrupt_var = tk.StringVar(value="正常")
@@ -1470,6 +1475,9 @@ class ToolboxApp(tk.Tk):
             "split_out": self._split_out_var,
             "split_prefix": self._split_prefix_var,
             "merge_out": self._merge_out_var,
+            "enc_out": self._enc_out_var,
+            "enc_codec": self._enc_codec_var,
+            "enc_fmt": self._enc_fmt_var,
             "gen_size": self._gen_size_var,
             "gen_type": self._gen_type_var,
             "gen_corrupt": self._gen_corrupt_var,
@@ -1515,7 +1523,7 @@ class ToolboxApp(tk.Tk):
     # ---------------- UI 搭建 ----------------
     # 菜单结构：一级为分组名（可折叠），二级为功能页；独立功能（组名为 None）保持一级
     _MENU_GROUPS = [
-        ("文件处理", [0, 1, 2, 3]),       # 图片转PDF/图片批量转ZIP/文件分割/文件合并
+        ("文件处理", [0, 1, 2, 3, 15]),    # 图片转PDF/图片批量转ZIP/文件分割/文件合并/按编码生成压缩包
         ("数据生成", [4, 5, 6]),          # 生成指定大小文件/生成指定长度文本/随机人员信息
         ("开发工具", [8, 7, 9, 10]),      # 接口请求/URL编码解码/JSON格式化/JSON对比
         ("安全测试", [14]),               # 数据注入
@@ -1661,7 +1669,7 @@ class ToolboxApp(tk.Tk):
     def _page_title(self, index):
         return ["图片转 PDF", "单图单PDF转ZIP", "文件分割", "文件合并",
                 "生成指定大小文件", "生成指定长度文本", "随机人员信息",
-                "URL编码解码", "接口请求", "JSON格式化", "JSON对比", "截图识别表格", "关于", "设置", "数据注入"][index]
+                "URL编码解码", "接口请求", "JSON格式化", "JSON对比", "截图识别表格", "关于", "设置", "数据注入", "按编码生成压缩包"][index]
 
     def _select_menu(self, index):
         self._save_current_log()
@@ -1723,6 +1731,8 @@ class ToolboxApp(tk.Tk):
                         self._show_page_settings()
                     elif index == 14:
                         self._show_page_security()
+                    elif index == 15:
+                        self._show_page_zipenc()
         except Exception:
             _err = traceback.format_exc()
             try:
@@ -2110,6 +2120,89 @@ class ToolboxApp(tk.Tk):
         out = os.path.join(out_dir, "images_pdfs.zip")
         self._start_task(convert_images_to_zip, list(self._zip_images), out,
                          on_done=self._on_done_success)
+
+    # =============== 页面15: 按编码生成压缩包 ===============
+    def _show_page_zipenc(self):
+        from zip_encoder import SUPPORTED_ENCODINGS, SUPPORTED_FORMATS
+        self.title_label.config(text="按编码生成压缩包")
+
+        self._label(self.content, "手动添加多个文件（任意类型），选择文件名编码与压缩包格式，生成用于验证文件名编码乱码问题的压缩包。").pack(anchor="w", pady=(0, 8))
+
+        list_frame = tk.Frame(self.content, bg="#f5f6fa")
+        list_frame.pack(fill="both", expand=True)
+
+        self._enc_listbox = tk.Listbox(list_frame, font=("Microsoft YaHei UI", 10))
+        self._enc_listbox.pack(side="left", fill="both", expand=True)
+
+        btn_frame = tk.Frame(list_frame, bg="#f5f6fa")
+        btn_frame.pack(side="left", fill="y", padx=(10, 0))
+        tk.Button(btn_frame, text="添加文件", command=self._enc_add, width=12).pack(pady=3)
+        tk.Button(btn_frame, text="移除选中", command=self._enc_remove, width=12).pack(pady=3)
+        tk.Button(btn_frame, text="清空列表", command=self._enc_clear, width=12).pack(pady=3)
+
+        r1 = self._row(self.content)
+        self._label(r1, "文件名编码:").pack(side="left")
+        tk.OptionMenu(r1, self._enc_codec_var, *SUPPORTED_ENCODINGS).pack(side="left", padx=8)
+        self._label(r1, "压缩包格式:").pack(side="left", padx=(16, 0))
+        tk.OptionMenu(r1, self._enc_fmt_var, *SUPPORTED_FORMATS).pack(side="left", padx=8)
+
+        out_row = self._row(self.content)
+        self._label(out_row, "输出路径:").pack(side="left")
+        tk.Entry(out_row, textvariable=self._enc_out_var).pack(
+            side="left", padx=8, fill="x", expand=True)
+        tk.Button(out_row, text="浏览", command=self._enc_choose_out).pack(side="left")
+
+        btn_row = self._row(self.content)
+        tk.Button(btn_row, text="生成压缩包", command=self._enc_convert,
+                  bg="#1abc9c", fg="white",
+                  font=("Microsoft YaHei UI", 11, "bold"), width=18).pack(pady=(6, 0))
+
+    def _enc_add(self):
+        files = filedialog.askopenfilenames(title="选择文件")
+        for f in files:
+            f = os.path.abspath(f)
+            if f in self._enc_files:
+                continue
+            self._enc_files.append(f)
+            self._enc_listbox.insert("end", os.path.basename(f))
+
+    def _enc_remove(self):
+        sel = self._enc_listbox.curselection()
+        for i in reversed(sel):
+            self._enc_listbox.delete(i)
+            del self._enc_files[i]
+
+    def _enc_clear(self):
+        self._enc_listbox.delete(0, "end")
+        self._enc_files.clear()
+
+    def _enc_choose_out(self):
+        d = filedialog.askdirectory(title="选择输出路径", initialdir=self._enc_out_var.get())
+        if d:
+            self._enc_out_var.set(d)
+
+    def _enc_convert(self):
+        if not self._enc_files:
+            self._notify("请先添加图片")
+            return
+        out_dir = self._enc_out_var.get().strip()
+        if not out_dir:
+            self._notify("请设置输出路径")
+            return
+        os.makedirs(out_dir, exist_ok=True)
+        encoding = self._enc_codec_var.get()
+        fmt = self._enc_fmt_var.get()
+        ext = ".tar.gz" if fmt == "tar.gz" else "." + fmt
+        out = os.path.join(out_dir, "archive_" + encoding.lower().replace("-", "") + ext)
+        try:
+            create_archive_with_encoding(list(self._enc_files), out,
+                                         encoding=encoding, fmt=fmt)
+            names = verify_archive_names(out, encoding=encoding, fmt=fmt)
+            preview = "、".join(n for _, n in names[:3])
+            self._notify("已生成: %s（按 %s 编码，回读文件名: %s%s）" % (
+                out, encoding, preview, " ..." if len(names) > 3 else ""))
+        except Exception as e:
+            self._notify("生成失败: %s" % e)
 
     # =============== 页面3: 文件分割 ===============
     def _show_page_split(self):
