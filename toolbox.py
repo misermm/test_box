@@ -1204,7 +1204,7 @@ class LogBuffer:
 
 
 class KeyValueTable(tk.Frame):
-    """带单元格边框的 Key/Value 表格。
+    """带单元格边框的 Key/Value 街格，支持鼠标滚轮滚动。
 
     交互规则：
     - 单击单元格：仅选中该行（整行高亮），不进入编辑
@@ -1223,14 +1223,40 @@ class KeyValueTable(tk.Frame):
         self._entries = {}
         self._next_id = 0
         self._selected = None
+        # Canvas + 内部 Frame
+        self._canvas = tk.Canvas(self, bg="white", highlightthickness=0, bd=0)
+        self._inner = tk.Frame(self._canvas, bg="white", bd=0, highlightthickness=0)
+        self._canvas_win = self._canvas.create_window((0, 0), window=self._inner, anchor="nw")
+        self._canvas.pack(side="left", fill="both", expand=True)
+        self._inner.bind("<Configure>", lambda e: self._canvas.configure(scrollregion=self._canvas.bbox("all")))
+        self._canvas.bind("<Configure>", self._on_canvas_resize)
+        self._canvas.bind("<MouseWheel>", self._on_mousewheel)
+        self._inner.bind("<MouseWheel>", self._on_mousewheel)
         for i in range(len(self._headings)):
-            self.columnconfigure(i, weight=1)
+            self._inner.columnconfigure(i, weight=1)
+        # 表头：用place固定在Canvas顶部，与数据列天然对齐
+        self._header_height = 26
+        self._header_labels = []
         for i, h in enumerate(self._headings):
-            tk.Label(self, text=h, bg="#dfe6ee", fg="#2c3e50",
+            lbl = tk.Label(self._canvas, text=h, bg="#dfe6ee", fg="#2c3e50",
                      font=("Microsoft YaHei UI", 9, "bold"),
-                     relief="solid", bd=1, padx=4, pady=1
-                     ).grid(row=0, column=i, sticky="nsew")
-        self.rowconfigure(0, weight=0)
+                     relief="solid", bd=1, padx=4, pady=1)
+            lbl.place(x=0, y=0, relwidth=1.0/len(self._headings), height=self._header_height)
+            self._header_labels.append(lbl)
+        # 数据行从y=header_height开始（占位行）
+        spacer = tk.Frame(self._inner, height=self._header_height, bg="white", bd=0, highlightthickness=0)
+        spacer.grid(row=0, column=0, columnspan=len(self._headings), sticky="nsew")
+        self._inner.rowconfigure(0, minsize=self._header_height)
+
+    def _on_canvas_resize(self, event):
+        self._canvas.itemconfig(self._canvas_win, width=event.width)
+        # 更新表头列宽
+        col_w = event.width // len(self._headings)
+        for i, lbl in enumerate(self._header_labels):
+            lbl.place(x=i * col_w, y=0, width=col_w, height=self._header_height)
+
+    def _on_mousewheel(self, event):
+        self._canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
     def _col_index(self, column):
         if isinstance(column, int):
@@ -1292,9 +1318,9 @@ class KeyValueTable(tk.Frame):
     def insert(self, parent, index, values=("", "")):
         rid = "i%d" % self._next_id
         self._next_id += 1
-        r = len(self._ids) + 1
+        r = len(self._ids) + 1  # +1 因为 row 0 是表头占位行
         for c in range(len(self._headings)):
-            e = tk.Entry(self, relief="solid", bd=1, justify="left",
+            e = tk.Entry(self._inner, relief="solid", bd=1, justify="left",
                          font=("Microsoft YaHei UI", 9),
                          state="normal",
                          insertbackground="black", takefocus=False)
@@ -1305,10 +1331,10 @@ class KeyValueTable(tk.Frame):
             e.bind("<Double-Button-1>", lambda _e, rr=rid, cc=c, en=e: self._on_cell_double(rr, cc, en, _e.x))
             e.bind("<FocusOut>", lambda _e, rr=rid, cc=c, en=e: self._end_edit(rr, cc, en))
             e.bind("<Return>", lambda _e, ee=e: ee.master.focus_set())
+            e.bind("<MouseWheel>", self._on_mousewheel)
             self._entries[(rid, c)] = e
-        self.rowconfigure(r, weight=0)
+        self._inner.rowconfigure(r, weight=0)
         self._ids.append(rid)
-        print(f"[DEBUG] KeyValueTable.insert: rid={rid}, r={r}, _ids={self._ids}, _entries keys={list(self._entries.keys())}")
         return rid
 
     def delete(self, *items):
@@ -1373,15 +1399,18 @@ class KeyValueTable(tk.Frame):
         return (en.winfo_x(), en.winfo_y(), en.winfo_width(), en.winfo_height())
 
     def yview(self, *args):
-        pass
+        self._canvas.yview(*args)
 
     def yview_moveto(self, fraction):
-        pass
+        self._canvas.yview_moveto(fraction)
 
 
 class ToolboxApp(tk.Tk):
     def __init__(self):
         super().__init__()
+        # 设置ttk样式：Combobox下拉列表白色背景
+        style = ttk.Style()
+        style.configure("TCombobox", fieldbackground="white", background="white")
         # 修复：本窗口创建时默认根还是启动加载窗，若不切换，
         # __init__ 里创建的 IntVar/StringVar 都挂在加载窗上，加载窗销毁后全部失效，
         # 导致所有功能页按钮消失。这里立刻把默认根指回主窗口。
@@ -1501,6 +1530,7 @@ class ToolboxApp(tk.Tk):
         left = tk.Frame(self, bg="#2c3e50", width=200)
         left.pack(side="left", fill="both", expand=False)
         left.pack_propagate(False)
+        self._menu_frame = left
 
         tk.Label(left, text="功能菜单", fg="white", bg="#2c3e50",
                  font=("Microsoft YaHei UI", 14, "bold")).pack(pady=(20, 10))
@@ -1559,14 +1589,18 @@ class ToolboxApp(tk.Tk):
         """构建二级分组菜单：组头可折叠/展开，组内为功能项；独立功能直接一级显示"""
         self._menu_item_labels = {}  # 页面索引 -> 菜单项 label
         canvas = tk.Canvas(parent, bg="#2c3e50", highlightthickness=0)
-        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=lambda *a: None)
         container = tk.Frame(canvas, bg="#2c3e50", padx=8, pady=8)
-        canvas.configure(yscrollcommand=scrollbar.set)
-        scrollbar.pack(side="right", fill="y")
         canvas.pack(side="left", fill="both", expand=True)
         canvas.create_window((0, 0), window=container, anchor="nw")
         container.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-1 * (e.delta / 120)), "units"))
+        self._menu_canvas = canvas
+
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        self._menu_on_mousewheel = _on_mousewheel
+        canvas.bind("<MouseWheel>", _on_mousewheel)
+        container.bind("<MouseWheel>", _on_mousewheel)
 
         for group, indices in self._MENU_GROUPS:
             if group is None:
@@ -1592,6 +1626,8 @@ class ToolboxApp(tk.Tk):
                     h.config(text="▾ " + g)
 
             header.bind("<Button-1>", lambda e, t=_toggle: t())
+            header.bind("<MouseWheel>", _on_mousewheel)
+            body.bind("<MouseWheel>", _on_mousewheel)
             for idx in indices:
                 self._make_menu_item(body, idx, indent=True)
 
@@ -1615,6 +1651,7 @@ class ToolboxApp(tk.Tk):
         label.bind("<Enter>", _hover)
         label.bind("<Leave>", _leave)
         label.bind("<Button-1>", lambda e: self._select_menu(index))
+        label.bind("<MouseWheel>", self._menu_on_mousewheel)
         self._menu_item_labels[index] = label
 
     def _update_menu_highlight(self):
@@ -2811,9 +2848,25 @@ class ToolboxApp(tk.Tk):
         # 导致请求头/请求体/cURL 导入区全部不可见
         main_pane.add(req_frame, minsize=240, height=340)
 
-        # 请求头和请求体横向排列
+        # cURL 导入（先 pack 底部元素，再让 hbox 占剩余空间）
+        curl_frame = tk.Frame(req_frame, bg="#f5f6fa")
+        curl_frame.pack(side="bottom", fill="x", pady=(4, 2))
+        self._curl_text = tk.Text(curl_frame, height=2, font=("Consolas", 10), wrap="word", bg="white")
+        self._curl_text.pack(side="left", fill="x", expand=True, padx=(0, 4))
+        tk.Button(curl_frame, text="导入接口", command=self._import_curl,
+                  bg="#3498db", fg="white", font=("Microsoft YaHei UI", 10, "bold"), width=10).pack(side="left")
+
+        # 发送/清空按钮
+        btn_row = tk.Frame(req_frame, bg="#f5f6fa")
+        btn_row.pack(side="bottom", fill="x", pady=(4, 0))
+        tk.Button(btn_row, text="发送请求", command=self._http_run,
+                  bg="#1abc9c", fg="white",
+                  font=("Microsoft YaHei UI", 11, "bold"), width=14).pack(side="left", padx=(0, 10))
+        tk.Button(btn_row, text="清空响应", command=self._http_clear, width=10).pack(side="left")
+
+        # 请求头和请求体横向排列（最后 pack，fill both 占剩余空间）
         hbox = tk.PanedWindow(req_frame, orient="horizontal", sashrelief="flat",
-                              bg="#d0d0d0", sashwidth=5, opaqueresize=True)  # 各占一半可拖动
+                              bg="#d0d0d0", sashwidth=5, opaqueresize=True)
         hbox.pack(fill="both", expand=True, pady=(0, 4))
 
         # Left: Headers
@@ -2870,26 +2923,8 @@ class ToolboxApp(tk.Tk):
         tk.Button(btn_frame2, text="添加", command=self._add_body_row, width=6).pack(side="left", fill="x", padx=2, expand=True)
         tk.Button(btn_frame2, text="删除", command=self._del_body_row, width=6).pack(side="left", fill="x", padx=2, expand=True)
 
-        # cURL 导入
-        self.after(0, lambda m="[构建] 请求体区完成": self._notify(m))
-        curl_frame = tk.Frame(req_frame, bg="#f5f6fa")
-        curl_frame.pack(fill="x", pady=(4, 2))
-        self._curl_text = tk.Text(curl_frame, height=2, font=("Consolas", 10), wrap="word", bg="white")
-        self._curl_text.pack(side="left", fill="x", expand=True, padx=(0, 4))
-        tk.Button(curl_frame, text="导入接口", command=self._import_curl,
-                  bg="#3498db", fg="white", font=("Microsoft YaHei UI", 10, "bold"), width=10).pack(side="left")
-
-        # 发送/清空按钮
-        self.after(0, lambda m="[构建] cURL导入区完成": self._notify(m))
-        btn_row = tk.Frame(req_frame, bg="#f5f6fa")
-        btn_row.pack(fill="x", pady=(4, 0))
-        tk.Button(btn_row, text="发送请求", command=self._http_run,
-                  bg="#1abc9c", fg="white",
-                  font=("Microsoft YaHei UI", 11, "bold"), width=14).pack(side="left", padx=(0, 10))
-        tk.Button(btn_row, text="清空响应", command=self._http_clear, width=10).pack(side="left")
-
         # ---- 响应区 ----
-        self.after(0, lambda m="[构建] 发送按钮区完成": self._notify(m))
+        self.after(0, lambda m="[构建] 请求体区完成": self._notify(m))
         resp_frame = tk.Frame(main_pane, bg="#f5f6fa")
         main_pane.add(resp_frame, minsize=140, height=220)  # BUG-01: 保证响应区有可见高度
 
@@ -3441,6 +3476,7 @@ class ToolboxApp(tk.Tk):
             xscrollcommand=self._ocr_tree_scroll_x.set
         )
         self._ocr_tree.pack(fill="both", expand=True)
+        self._ocr_tree.bind("<MouseWheel>", lambda e: self._ocr_tree.yview_scroll(int(-1 * (e.delta / 120)), "units"))
 
         self._ocr_tree_scroll_y.config(command=self._ocr_tree.yview)
         self._ocr_tree_scroll_x.config(command=self._ocr_tree.xview)
@@ -3933,7 +3969,7 @@ class ToolboxApp(tk.Tk):
 
         row1 = self._row(self.content)
         self._label(row1, "注入类型:").pack(side="left")
-        self._security_type_var = tk.StringVar(value="sql")
+        self._security_type_var = tk.StringVar(value="SQL注入")
         types = ["sql", "xss", "cmd", "ldap", "nosql"]
         type_names = {"sql": "SQL注入", "xss": "XSS脚本注入", "cmd": "命令注入", "ldap": "LDAP注入", "nosql": "NoSQL注入"}
         ttk.Combobox(row1, textvariable=self._security_type_var,
