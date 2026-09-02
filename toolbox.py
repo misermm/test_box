@@ -1223,7 +1223,7 @@ class KeyValueTable(tk.Frame):
         self._entries = {}
         self._next_id = 0
         self._selected = None
-        # 表头（固定在顶部，不参与滚动）
+        # 表头（固定在顶部，不参与滚动）— 与数据共享同一个 grid 容器确保列对齐
         self._header_frame = tk.Frame(self, bg="#95a5a6")
         self._header_frame.pack(side="top", fill="x")
         self._header_labels = []
@@ -1248,6 +1248,7 @@ class KeyValueTable(tk.Frame):
 
     def _on_canvas_resize(self, event):
         self._canvas.itemconfig(self._canvas_win, width=event.width)
+        self._header_frame.configure(width=event.width)
     def _on_mousewheel(self, event):
         self._canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
