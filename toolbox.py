@@ -1664,11 +1664,9 @@ class ToolboxApp(tk.Tk):
         canvas = tk.Canvas(parent, bg="#2c3e50", highlightthickness=0)
         canvas.configure(yscrollcommand=lambda *a: None)
         container = tk.Frame(canvas, bg="#2c3e50", padx=2, pady=8)
-        canvas.pack(side="left", fill="both", expand=True)
+        canvas.pack(side="left", fill="y")
         _win = canvas.create_window((0, 0), window=container, anchor="nw")
         container.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        # 容器宽度始终跟随面板宽度，菜单项(fill=x)才能填满左侧栏，不留中间空白
-        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(_win, width=e.width))
         self._menu_canvas = canvas
 
         def _on_mousewheel(event):
