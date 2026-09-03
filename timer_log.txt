@@ -564,3 +564,4 @@
 2026-09-03 22:26:16 检查: now=22:26 提醒数=1
 2026-09-03 22:26:18 检查: now=22:26 提醒数=1
 2026-09-03 22:26:20 检查: now=22:26 提醒数=1
+2026-09-03 22:28:27 加载提醒: 存储位置=C:\Users\Joker\AppData\Local\Temp\cfg_test_0okj8v_e\new_root 内容='{"shutdown": null, "reminders": [{"id": 1, "hour": 22, "min": 17, "freq": "仅一次", "day": null, "content": "该休息一下了", "active": false}]}'

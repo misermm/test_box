@@ -1601,12 +1601,12 @@ class ToolboxApp(tk.Tk):
             import tkinter.font as tkfont
             self.update_idletasks()
             f = tkfont.Font(family="Microsoft YaHei UI", size=10)
-            # 最宽情形：缩进菜单项 padx=10+18；组头 "▾ "+文字
+            # 最宽情形：缩进菜单项 padx=6+14；组头 "▾ "+文字
             texts = ["▾ " + g for g, _ in self._MENU_GROUPS if g]
             for _, idxs in self._MENU_GROUPS:
                 texts.extend("按编码生成压缩包" for i in idxs)  # 取最长菜单名近似
             longest = max(f.measure(t) for t in texts)
-            need = longest + 20 + 16  # padx(20) + container padx(16)
+            need = longest + 24  # container padx(8) + menu padx(16) + 余量
             left.configure(width=need)
             pane.paneconfig(left, width=need)
         except Exception:
@@ -1710,10 +1710,10 @@ class ToolboxApp(tk.Tk):
 
     def _make_menu_item(self, parent, index, indent):
         """单个菜单项：悬停高亮，选中后青色底"""
-        pad = 18 if indent else 0
+        pad = 14 if indent else 0
         label = tk.Label(
             parent, text=self._page_title(index), anchor="w", cursor="hand2",
-            fg="#ecf0f1", bg="#34495e", padx=10 + pad, pady=5,
+            fg="#ecf0f1", bg="#34495e", padx=6 + pad, pady=5,
             font=("Microsoft YaHei UI", 10))
         label.pack(fill="x", pady=1)
 
