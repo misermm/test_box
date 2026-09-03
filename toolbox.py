@@ -1540,9 +1540,6 @@ class ToolboxApp(tk.Tk):
         left.pack_propagate(False)
         self._menu_frame = left
 
-        tk.Label(left, text="功能菜单", fg="white", bg="#2c3e50",
-                 font=("Microsoft YaHei UI", 14, "bold")).pack(pady=(20, 10))
-
         self._build_menu(left)
         _boot_progress(30, "正在构建功能页面...")
 

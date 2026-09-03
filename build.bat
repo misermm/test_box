@@ -32,28 +32,15 @@ if not exist models (
 
 echo   Stopping running TestToolbox.exe if any...
 taskkill /F /IM TestToolbox.exe >nul 2>&1
-rem Wait for file lock release to avoid WinError 5 when PyInstaller overwrites dist\TestToolbox.exe
 timeout /t 2 /nobreak >nul
-echo [2/3] Building exe (onefile + incremental cache)...
-rem Incremental cache guard: if cache has TestToolbox.pkg but PYZ-00.pyz is missing,
-rem PKG stage fails with FileNotFoundError on PYZ-00.pyz. Clean build/ to force rebuild.
+taskkill /F /IM TestToolbox.exe >nul 2>&1
+timeout /t 2 /nobreak >nul
+echo [2/3] Building exe (spec file + incremental cache)...
 if exist build\TestToolbox\TestToolbox.pkg if not exist build\TestToolbox\PYZ-00.pyz (
     echo   Stale incremental cache detected, cleaning build/...
     rmdir /s /q build
 )
-.venv\Scripts\python.exe -m PyInstaller ^
-  --onefile --noconsole --noconfirm --runtime-tmpdir "cache" ^
-  --name "TestToolbox" ^
-  --distpath dist --workpath build --specpath . ^
-  --icon icon.ico --version-file version.txt ^
-  ^
-  --collect-all PIL --collect-all cv2 ^
-  --collect-all paddle --collect-all pyclipper ^
-  --collect-all shapely --collect-all paddlex ^
-  --add-data ".venv\Lib\site-packages\paddle\libs;paddle\libs" ^
-  --add-data "models;models" ^
-  toolbox.py
-
+.venv\Scripts\python.exe -m PyInstaller TestToolbox.spec --noconfirm
 if errorlevel 1 (
     echo Build failed!
     pause

@@ -5,6 +5,7 @@ __pycache__/
 data/
 build/
 *.spec
+!TestToolbox.spec
 _test_gui.py
 gui_test.txt
 _selftest_result.txt
