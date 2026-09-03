@@ -1606,9 +1606,10 @@ class ToolboxApp(tk.Tk):
             for _, idxs in self._MENU_GROUPS:
                 texts.extend("按编码生成压缩包" for i in idxs)  # 取最长菜单名近似
             longest = max(f.measure(t) for t in texts)
-            need = longest + 24  # container padx(8) + menu padx(16) + 余量
+            need = longest + 20  # container padx(8) + menu padx(12) + 余量
             left.configure(width=need)
             pane.paneconfig(left, width=need)
+            print(f"[DEBUG] menu font measure: longest={longest}, need={need}")
         except Exception:
             pass
         _boot_progress(30, "正在构建功能页面...")
@@ -1665,7 +1666,7 @@ class ToolboxApp(tk.Tk):
         self._menu_item_labels = {}  # 页面索引 -> 菜单项 label
         canvas = tk.Canvas(parent, bg="#2c3e50", highlightthickness=0)
         canvas.configure(yscrollcommand=lambda *a: None)
-        container = tk.Frame(canvas, bg="#2c3e50", padx=8, pady=8)
+        container = tk.Frame(canvas, bg="#2c3e50", padx=4, pady=8)
         canvas.pack(side="left", fill="both", expand=True)
         _win = canvas.create_window((0, 0), window=container, anchor="nw")
         container.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
@@ -1710,10 +1711,10 @@ class ToolboxApp(tk.Tk):
 
     def _make_menu_item(self, parent, index, indent):
         """单个菜单项：悬停高亮，选中后青色底"""
-        pad = 14 if indent else 0
+        pad = 12 if indent else 0
         label = tk.Label(
             parent, text=self._page_title(index), anchor="w", cursor="hand2",
-            fg="#ecf0f1", bg="#34495e", padx=6 + pad, pady=5,
+            fg="#ecf0f1", bg="#34495e", padx=4 + pad, pady=5,
             font=("Microsoft YaHei UI", 10))
         label.pack(fill="x", pady=1)
 
