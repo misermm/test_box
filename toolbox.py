@@ -1418,6 +1418,7 @@ class ToolboxApp(tk.Tk):
         self.geometry("980x680")
         self.minsize(820, 560)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self._init_after()
 
     def _on_close(self):
         if self._running:
