@@ -1,3 +1,13 @@
+# 进程级 DPI 感知：必须在导入 tkinter / 创建任何窗口之前声明，
+# 否则 Tkinter 走虚拟化逻辑坐标，与系统 API 的物理像素不一致
+import ctypes as _ctypes
+try:
+    _ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PER_MONITOR_DPI_AWARE
+except Exception:
+    try:
+        _ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
 #!/usr/bin/env python3
 """
 图片工具箱
@@ -57,7 +67,11 @@ def _load_storage_dir():
         with open(_STORAGE_CONFIG_FILE, encoding="utf-8") as f:
             p = f.read().strip()
         if p and os.path.isabs(p):
-            return p
+            # 路径必须真实存在且可用，否则（如指向已删除的临时目录）
+            # 回退到默认存储位置，避免配置读写全部静默失败
+            if os.path.isdir(p) and os.access(p, os.R_OK | os.W_OK):
+                return p
+            print(f"[存储] 配置的存储位置不可用: {p}，回退默认位置")
     except Exception:
         pass
     return _default_storage_dir()
@@ -103,14 +117,25 @@ def _read_config(name):
     return None
 
 
+_APP_CACHE_DIR = os.path.join(_APP_DIR, "cache")
+
+
 def _write_config(name, content):
-    """写配置文件到存储位置（失败静默，不影响功能）"""
+    """写配置文件到存储位置；同时镜像一份到 exe 同级 cache（失败静默，不影响功能）"""
     try:
         os.makedirs(_STORAGE_DIR, exist_ok=True)
         with open(_config_path(name), "w", encoding="utf-8") as f:
             f.write(content)
     except Exception:
         pass
+    # 镜像到 exe 同级 cache：存储位置被自定义/丢失时仍有兜底副本
+    if os.path.abspath(_STORAGE_DIR) != os.path.abspath(_APP_CACHE_DIR) and name != ".storage_dir":
+        try:
+            os.makedirs(_APP_CACHE_DIR, exist_ok=True)
+            with open(os.path.join(_APP_CACHE_DIR, name), "w", encoding="utf-8") as f:
+                f.write(content)
+        except Exception:
+            pass
 
 
 def _external_models_dir():
@@ -261,9 +286,14 @@ def _load_heavy_modules():
     _imd.version = _patched_imd_version
 
     # 补丁2：绕过 paddlex 在 PyInstaller exe 中的依赖检查
-    import paddlex.utils.deps as _pdx_deps
-    _pdx_deps.is_extra_available = lambda extra: True
-    _pdx_deps.is_dep_available = lambda dep, check_version=False: True
+    # paddlex 未安装时跳过该补丁（表格识别不可用，但不影响其他功能与启动）
+    try:
+        import paddlex.utils.deps as _pdx_deps
+    except ImportError:
+        print("[模型] 未安装 paddlex，表格识别功能不可用")
+    else:
+        _pdx_deps.is_extra_available = lambda extra: True
+        _pdx_deps.is_dep_available = lambda dep, check_version=False: True
 
     from PIL import Image as _Image, ImageGrab as _ImageGrab, ImageTk as _ImageTk
     import cv2 as _cv2_real
@@ -1418,6 +1448,10 @@ class ToolboxApp(tk.Tk):
         self.geometry("980x680")
         self.minsize(820, 560)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+        # 强制显示到最前，避免被主窗口遮挡或未映射
+        self.deiconify()
+        self.lift()
+        self.focus_force()
         self._init_after()
 
     def _on_close(self):
@@ -1536,6 +1570,10 @@ class ToolboxApp(tk.Tk):
         # 用户不访问该页则快捷键永远不会激活
         self._init_ocr_hotkey()
         # 启动定时检查（程序启动即生效，不依赖是否打开过定时页面）
+        # 启动时必须加载已保存的提醒数据，否则未打开定时工具页面前
+        # self._reminders 为空，定时提醒永远不会触发
+        if not getattr(self, "_reminders", None):
+            self._load_reminders()
         self._timer_check_started = True
         self.after(5000, self._check_timer)
 
@@ -1550,16 +1588,33 @@ class ToolboxApp(tk.Tk):
     ]
 
     def _build_ui(self):
-        left = tk.Frame(self, bg="#2c3e50", width=200)
-        left.pack(side="left", fill="both", expand=False)
-        left.pack_propagate(False)
+        # 可拖拽分栏：左侧菜单自适应文字宽度，右侧内容区可随分隔条调整
+        pane = ttk.Panedwindow(self, orient="horizontal")
+        pane.pack(side="left", fill="both", expand=True)
+        left = tk.Frame(pane, bg="#2c3e50", width=200)
+        pane.add(left, weight=0)
         self._menu_frame = left
 
         self._build_menu(left)
+        # 菜单宽度自适应：用菜单项真实字体测量，紧贴内容，避免面板过宽留白
+        try:
+            import tkinter.font as tkfont
+            self.update_idletasks()
+            f = tkfont.Font(family="Microsoft YaHei UI", size=10)
+            # 最宽情形：缩进菜单项 padx=10+18；组头 "▾ "+文字
+            texts = ["▾ " + g for g, _ in self._MENU_GROUPS if g]
+            for _, idxs in self._MENU_GROUPS:
+                texts.extend("按编码生成压缩包" for i in idxs)  # 取最长菜单名近似
+            longest = max(f.measure(t) for t in texts)
+            need = longest + 20 + 16  # padx(20) + container padx(16)
+            left.configure(width=need)
+            pane.paneconfig(left, width=need)
+        except Exception:
+            pass
         _boot_progress(30, "正在构建功能页面...")
 
-        right = tk.Frame(self, bg="#f5f6fa")
-        right.pack(side="left", fill="both", expand=True)
+        right = tk.Frame(pane, bg="#f5f6fa")
+        pane.add(right, weight=1)
 
         self.title_label = tk.Label(right, bg="#f5f6fa", fg="#2c3e50",
                                     font=("Microsoft YaHei UI", 16, "bold"))
@@ -1612,8 +1667,10 @@ class ToolboxApp(tk.Tk):
         canvas.configure(yscrollcommand=lambda *a: None)
         container = tk.Frame(canvas, bg="#2c3e50", padx=8, pady=8)
         canvas.pack(side="left", fill="both", expand=True)
-        canvas.create_window((0, 0), window=container, anchor="nw")
+        _win = canvas.create_window((0, 0), window=container, anchor="nw")
         container.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        # 容器宽度始终跟随面板宽度，菜单项(fill=x)才能填满左侧栏，不留中间空白
+        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(_win, width=e.width))
         self._menu_canvas = canvas
 
         def _on_mousewheel(event):
@@ -2266,8 +2323,9 @@ class ToolboxApp(tk.Tk):
         rem_frame = tk.Frame(self.content, bg="#f5f6fa")
         rem_frame.pack(fill="x", pady=(0, 6))
         self._label(rem_frame, "时间:").pack(side="left")
-        self._rem_hour_var = tk.StringVar(value="09")
-        self._rem_min_var = tk.StringVar(value="00")
+        _now = datetime.datetime.now()
+        self._rem_hour_var = tk.StringVar(value=f"{_now.hour:02d}")
+        self._rem_min_var = tk.StringVar(value=f"{_now.minute:02d}")
         tk.Spinbox(rem_frame, from_=0, to=23, width=4, textvariable=self._rem_hour_var).pack(side="left", padx=4)
         self._label(rem_frame, ":").pack(side="left")
         tk.Spinbox(rem_frame, from_=0, to=59, width=4, textvariable=self._rem_min_var).pack(side="left", padx=4)
@@ -2276,26 +2334,31 @@ class ToolboxApp(tk.Tk):
         rem_freq_combo = ttk.Combobox(rem_frame, textvariable=self._rem_freq_var, state="readonly",
                       values=["仅一次", "每天", "工作日", "每月"], width=8)
         rem_freq_combo.pack(side="left", padx=4)
+        # 内容输入框、按钮先于"每月X号"控件创建（"每月X号"用 before= 插到按钮左侧）
+        self._rem_editing_id = None
+        self._rem_btn_var = tk.StringVar(value="添加提醒")
+        self._label(rem_frame, "  内容:").pack(side="left", padx=(12, 4))
+        self._rem_content_var = tk.StringVar(value="该休息一下了")
+        tk.Entry(rem_frame, textvariable=self._rem_content_var, width=20).pack(side="left", padx=4)
+        _add_btn = tk.Button(rem_frame, textvariable=self._rem_btn_var, command=self._timer_add_or_update_reminder,
+                  bg="#3498db", fg="white", width=14)
+        _add_btn.pack(side="left", padx=8)
         self._rem_day_var = tk.StringVar(value="1")
         self._rem_day_frame = tk.Frame(rem_frame, bg="#f5f6fa")
         self._label(self._rem_day_frame, "每月").pack(side="left")
         tk.Spinbox(self._rem_day_frame, from_=1, to=31, width=4, textvariable=self._rem_day_var).pack(side="left", padx=2)
         self._label(self._rem_day_frame, "号").pack(side="left")
-        self._rem_day_frame.pack(side="left", padx=4)
+        def _pack_day_frame():
+            # 显示在"添加提醒"按钮左侧
+            self._rem_day_frame.pack(side="left", padx=4, before=_add_btn)
+        _pack_day_frame()
         self._rem_day_frame.pack_forget()
         def _on_rem_freq_change(*_):
             if self._rem_freq_var.get() == "每月":
-                self._rem_day_frame.pack(side="left", padx=4)
+                _pack_day_frame()
             else:
                 self._rem_day_frame.pack_forget()
         self._rem_freq_var.trace_add("write", _on_rem_freq_change)
-        self._label(rem_frame, "  内容:").pack(side="left", padx=(12, 4))
-        self._rem_content_var = tk.StringVar(value="该休息一下了")
-        tk.Entry(rem_frame, textvariable=self._rem_content_var, width=20).pack(side="left", padx=4)
-        self._rem_editing_id = None
-        self._rem_btn_var = tk.StringVar(value="添加提醒")
-        tk.Button(rem_frame, textvariable=self._rem_btn_var, command=self._timer_add_or_update_reminder,
-                  bg="#3498db", fg="white", width=14).pack(side="left", padx=8)
         tk.Button(rem_frame, text="清空", command=self._timer_clear_reminder_form,
                   bg="#95a5a6", fg="white", width=6).pack(side="left", padx=4)
 
@@ -2362,8 +2425,9 @@ class ToolboxApp(tk.Tk):
         self._refresh_reminder_list()
 
     def _timer_clear_reminder_form(self):
-        self._rem_hour_var.set("09")
-        self._rem_min_var.set("00")
+        _now = datetime.datetime.now()
+        self._rem_hour_var.set(f"{_now.hour:02d}")
+        self._rem_min_var.set(f"{_now.minute:02d}")
         self._rem_freq_var.set("仅一次")
         self._rem_content_var.set("该休息一下了")
         self._rem_editing_id = None
@@ -2398,38 +2462,131 @@ class ToolboxApp(tk.Tk):
         for r in self._reminders:
             row = tk.Frame(self._rem_list_frame, bg="white", relief="solid", bd=1)
             row.pack(fill="x", pady=2)
-            status = "✓" if r["active"] else "✗"
-            fg = "#27ae60" if r["active"] else "#e74c3c"
-            tk.Label(row, text=status, bg="white", fg=fg, font=("Microsoft YaHei UI", 11, "bold"), width=2).pack(side="left")
-            day_str = f" 每月{r['day']}号" if r.get("day") else ""
-            info = f"{r['hour']:02d}:{r['min']:02d} {r['freq']}{day_str} \"{r['content']}\""
-            tk.Label(row, text=info, bg="white", fg="#2c3e50", font=("Microsoft YaHei UI", 10), anchor="w").pack(side="left", fill="x", expand=True, padx=4)
-            def _toggle_active(_r=r):
-                _r["active"] = not _r["active"]
+
+            var_active = tk.BooleanVar(value=bool(r.get("active", True)))
+            def _on_active(_r=r, _v=var_active):
+                _r["active"] = bool(_v.get())
                 self._save_reminders()
-                self._refresh_reminder_list()
-            btn_frame = tk.Frame(row, bg="white")
-            btn_frame.pack(side="right", padx=4)
-            tk.Button(btn_frame, text="启用/停用", command=_toggle_active, bg="#f39c12", fg="white", width=8).pack(side="left", padx=2)
-            def _edit(_r=r):
-                self._timer_edit_reminder(_r["id"])
-            tk.Button(btn_frame, text="编辑", command=_edit, bg="#3498db", fg="white", width=5).pack(side="left", padx=2)
+            tk.Checkbutton(row, text="启用", variable=var_active, command=_on_active,
+                           bg="white", font=("Microsoft YaHei UI", 9)).pack(side="left", padx=(6, 2))
+
+            var_h = tk.StringVar(value=f"{r['hour']:02d}")
+            var_m = tk.StringVar(value=f"{r['min']:02d}")
+            def _on_time(_r=r, _vh=var_h, _vm=var_m):
+                try:
+                    _r["hour"] = max(0, min(23, int(_vh.get())))
+                    _r["min"] = max(0, min(59, int(_vm.get())))
+                    self._save_reminders()
+                except ValueError:
+                    pass
+            tk.Spinbox(row, from_=0, to=23, width=3, textvariable=var_h,
+                       command=_on_time).pack(side="left", padx=2)
+            tk.Label(row, text=":", bg="white").pack(side="left")
+            tk.Spinbox(row, from_=0, to=59, width=3, textvariable=var_m,
+                       command=_on_time).pack(side="left", padx=2)
+
+            var_freq = tk.StringVar(value=r.get("freq", "仅一次"))
+            day_row = tk.Frame(row, bg="white")
+            var_day = tk.StringVar(value=str(r.get("day") or 1))
+
+            def _on_freq(_r=r, _v=var_freq, _dr=day_row):
+                _r["freq"] = _v.get()
+                if _r["freq"] == "每月":
+                    try:
+                        _r["day"] = max(1, min(31, int(var_day.get())))
+                    except ValueError:
+                        _r["day"] = 1
+                    _dr.pack(side="left")
+                else:
+                    _r["day"] = None
+                    _dr.pack_forget()
+                self._save_reminders()
+            ttk.Combobox(row, textvariable=var_freq, state="readonly", width=7,
+                         values=["仅一次", "每天", "工作日", "每月"],
+                         postcommand=lambda _f=_on_freq: None).pack(side="left", padx=4)
+            var_freq.trace_add("write", lambda *_a, _f=_on_freq: _f())
+
+            def _on_day(_r=r, _v=var_day):
+                try:
+                    _r["day"] = max(1, min(31, int(_v.get())))
+                    self._save_reminders()
+                except ValueError:
+                    pass
+            tk.Label(day_row, text="每月", bg="white").pack(side="left")
+            tk.Spinbox(day_row, from_=1, to=31, width=3, textvariable=var_day,
+                       command=_on_day).pack(side="left", padx=2)
+            tk.Label(day_row, text="号", bg="white").pack(side="left")
+            if r.get("freq") == "每月":
+                day_row.pack(side="left")
+
+            var_content = tk.StringVar(value=r.get("content", ""))
+            def _on_content(_r=r, _v=var_content, _e=None):
+                _r["content"] = _v.get().strip() or "该休息一下了"
+                self._save_reminders()
+            tk.Entry(row, textvariable=var_content, width=16, bg="#fafafa").pack(
+                side="left", fill="x", expand=True, padx=4)
+            var_content.trace_add("write", lambda *_a, _f=_on_content: _f())
+
+            def _save_row(_r=r, _vh=var_h, _vm=var_m, _vf=var_freq, _vd=var_day, _vc=var_content):
+                try:
+                    _r["hour"] = max(0, min(23, int(_vh.get())))
+                    _r["min"] = max(0, min(59, int(_vm.get())))
+                except ValueError:
+                    pass
+                _r["freq"] = _vf.get()
+                if _r["freq"] == "每月":
+                    try:
+                        _r["day"] = max(1, min(31, int(_vd.get())))
+                    except ValueError:
+                        _r["day"] = 1
+                else:
+                    _r["day"] = None
+                _r["content"] = _vc.get().strip() or "该休息一下了"
+                self._save_reminders()
+                self._notify("提醒已保存")
+                try:
+                    self.content.focus_set()  # 移走光标，行内输入框不再闪烁
+                except Exception:
+                    pass
             def _delete(_r=r):
                 self._timer_delete_reminder(_r["id"])
-            tk.Button(btn_frame, text="删除", command=_delete, bg="#e74c3c", fg="white", width=5).pack(side="left", padx=2)
+            tk.Button(row, text="删除", command=_delete, bg="#e74c3c", fg="white",
+                      width=5).pack(side="right", padx=(2, 6), pady=3)
+            tk.Button(row, text="保存", command=_save_row, bg="#27ae60", fg="white",
+                      width=5).pack(side="right", padx=2, pady=3)
+
+    def _timer_log(self, msg):
+        """定时模块诊断日志：写入存储位置和程序目录各一份，便于排查提醒未触发"""
+        line = f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S} {msg}\n"
+        for path in (_config_path("timer_log.txt"),
+                     os.path.join(_APP_DIR, "timer_log.txt")):
+            try:
+                with open(path, "a", encoding="utf-8") as f:
+                    f.write(line)
+            except Exception:
+                pass
 
     def _save_reminders(self):
         import json as _json
+        def _clean(obj):
+            if isinstance(obj, dict):
+                return {k: _clean(v) for k, v in obj.items() if not k.startswith("_")}
+            if isinstance(obj, list):
+                return [_clean(x) for x in obj]
+            return obj
         data = {
-            "shutdown": self._shutdown_timer,
-            "reminders": self._reminders,
+            "shutdown": _clean(self._shutdown_timer),
+            "reminders": _clean(self._reminders),
         }
-        _write_config("timer_data", _json.dumps(data, ensure_ascii=False))
+        raw = _json.dumps(data, ensure_ascii=False)
+        _write_config("timer_data", raw)
+        self._timer_log(f"保存提醒: 存储位置={_STORAGE_DIR} 内容={raw}")
 
     def _load_reminders(self):
         import json as _json
         try:
             raw = _read_config("timer_data")
+            self._timer_log(f"加载提醒: 存储位置={_STORAGE_DIR} 内容={raw!r}")
             if raw:
                 data = _json.loads(raw)
                 self._shutdown_timer = data.get("shutdown")
@@ -2443,23 +2600,42 @@ class ToolboxApp(tk.Tk):
 
     def _check_timer(self):
         try:
-            if self._winfo_exists() is False:
+            if not self.winfo_exists():
                 return
             now = datetime.datetime.now()
+            # 每分钟记录一次检查状态（不含秒，避免日志膨胀）
+            self._timer_log(f"检查: now={now:%H:%M} 提醒数={len(getattr(self, '_reminders', []) or [])}")
             if getattr(self, "_shutdown_timer", None) and self._shutdown_timer.get("active"):
                 if self._timer_match(now, self._shutdown_timer):
+                    self._shutdown_timer["_last_fired"] = f"{now:%Y-%m-%d %H:%M}"
+                    self._save_reminders()
                     self._show_timer_popup("shutdown")
-            for r in list(self._reminders):
+            for r in list(getattr(self, "_reminders", None) or []):
                 if r.get("active"):
                     if self._timer_match(now, r):
+                        r["_last_fired"] = f"{now:%Y-%m-%d %H:%M}"
+                        self._save_reminders()
+                        self._timer_log(f"触发提醒: id={r.get('id')} 内容={r.get('content')!r}")
                         self._show_timer_popup("reminder", r)
         except Exception:
-            pass
-        self.after(10000, self._check_timer)
+            # 不再静默吞错：记录到诊断日志，便于排查弹窗未显示
+            import traceback as _tb
+            self._timer_log("检查异常: " + _tb.format_exc(limit=3).replace("\n", " | "))
+            _tb.print_exc()
+        self.after(2000, self._check_timer)
 
     def _timer_match(self, now, timer):
+        """到点即触发；若程序忙/休眠错过整分钟，2 分钟内补偿触发一次。
+        通过 _last_fired 键去重，避免同一分钟重复弹窗。"""
         h, m = timer["hour"], timer["min"]
-        if now.hour != h or now.minute != m:
+        fired = timer.get("_last_fired")
+        cur_key = f"{now:%Y-%m-%d %H:%M}"
+        cur_minute_key = f"{now:%Y-%m-%d} {h:02d}:{m:02d}"
+        if fired == cur_key:
+            return False  # 本分钟已弹过
+        target = now.replace(hour=h, minute=m, second=0, microsecond=0)
+        delta = (now - target).total_seconds()
+        if not (0 <= delta <= 120):
             return False
         freq = timer["freq"]
         if freq == "仅一次":
@@ -2520,10 +2696,14 @@ class ToolboxApp(tk.Tk):
             is_shutdown = True
         elif reminder:
             content = reminder.get("content", "该休息一下了")
-        popup = _TimerPopup(self, kind, content=content, is_shutdown=is_shutdown)
-        popup.grab_set()
-        self.wait_window(popup)
-        self._timer_popup_shown = False
+        try:
+            popup = _TimerPopup(self, kind, content=content, is_shutdown=is_shutdown)
+            popup.grab_set()
+            self.wait_window(popup)
+        except Exception:
+            traceback.print_exc()
+        finally:
+            self._timer_popup_shown = False
         if kind == "shutdown" and self._shutdown_timer and self._shutdown_timer.get("active"):
             if self._shutdown_timer.get("freq") == "仅一次":
                 self._shutdown_timer["active"] = False
@@ -4780,7 +4960,46 @@ class _TimerPopup(tk.Toplevel):
         w, h = 360, 110
         sw = self.winfo_screenwidth()
         sh = self.winfo_screenheight()
-        self.geometry(f"{w}x{h}+{sw - w - 20}+{sh - h - 20}")
+        # 底部与任务栏上沿对齐。
+        # 注意：不要用 Win API（SHAppBarMessage/工作区）取任务栏位置——
+        # DPI 缩放（125%/150%）下它返回物理像素，而 Tkinter 窗口坐标是
+        # 缩放后的逻辑像素，两者相减会把弹窗定位到屏幕外（看起来"没弹出"）。
+        # DPI 感知已在程序入口（import 之前）声明，这里直接用比例法定位
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        # 比例法定位（免疫任何坐标系差异）：
+        # 任务栏上边缘/Tk坐标 = 物理底边 ÷ 物理屏高 × Tk屏高，纯比值无单位
+        work_bottom = sh - 46
+        try:
+            from ctypes import wintypes
+            _u = ctypes.windll.user32
+            _phys_h = _u.GetSystemMetrics(1)  # SM_CYSCREEN 物理屏高
+            class _APPBARDATA(ctypes.Structure):
+                _fields_ = [("cbSize", wintypes.DWORD), ("hWnd", wintypes.HANDLE),
+                            ("uCallbackMessage", wintypes.UINT), ("uEdge", wintypes.UINT),
+                            ("rc", wintypes.RECT), ("lParam", wintypes.LPARAM)]
+            abd = _APPBARDATA()
+            abd.cbSize = ctypes.sizeof(_APPBARDATA)
+            if (_phys_h > 0 and ctypes.windll.shell32.SHAppBarMessage(5, ctypes.byref(abd))
+                    and abd.rc.bottom > abd.rc.top + 10):
+                work_bottom = int(round(sh * abd.rc.bottom / _phys_h))
+            _log = getattr(parent, "_timer_log", None)
+            if _log:
+                _log(f"弹窗定位: Tk屏高={sh} 物理屏高={_phys_h} 物理底边={abd.rc.bottom} 结果={work_bottom}")
+        except Exception as _e:
+            _log = getattr(parent, "_timer_log", None)
+            if _log:
+                _log(f"弹窗定位回退固定偏移: {_e!r}")
+        # 先按估算尺寸放置，渲染完成后再用真实窗口高度精确对齐任务栏上沿
+        self.geometry(f"{w}x{h}+{sw - w - 20}+{max(work_bottom - h, 0)}")
+        def _snap_to_taskbar():
+            try:
+                self.update_idletasks()
+                real_h = self.winfo_height()
+                self.geometry(f"+{sw - self.winfo_width() - 20}+{max(work_bottom - real_h, 0)}")
+            except Exception:
+                pass
+        self.after(10, _snap_to_taskbar)
 
         canvas = tk.Canvas(self, width=w, height=h, bg="#ffffff", highlightthickness=0)
         canvas.pack()

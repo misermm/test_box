@@ -3,12 +3,7 @@
 ## 构建规则
 
 - 使用项目本地虚拟环境 `.venv` 进行打包
-- 每次修改代码后都必须重新打包 exe（用户要求，必须遵守）：
-
-```powershell
-pyinstaller TestToolbox.spec --noconfirm
-```
-
+- 修改代码后用 `python toolbox.py` 验证效果，无需每次都打包
 - 构建配置在 `TestToolbox.spec` 文件中，包括所有 `--collect-all`、`--add-data`、`upx_exclude` 等设置
 - 优化项：通过 `_get_paddle_excludes()` 自动检测 paddle 中可排除的子模块（训练/实验/部署相关），通过 `upx_exclude` 跳过 paddle DLL 的 UPX 压缩
 - `excludes` 列表由 `_get_paddle_excludes()` 自动生成，扫描 `.venv/Lib/site-packages/paddle/` 子目录，匹配排除模式：distributed/incubate/static/cuda/tensorrt/api_tracer/cinn_config/cost_model/hapi/dataset/geometric/metric/profiler/quantization/reader/optimizer/decomposition/sparse/pir
