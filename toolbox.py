@@ -1539,12 +1539,11 @@ class ToolboxApp(tk.Tk):
     # ---------------- UI 搭建 ----------------
     # 菜单结构：一级为分组名（可折叠），二级为功能页；独立功能（组名为 None）保持一级
     _MENU_GROUPS = [
-        ("文件处理", [0, 1, 2, 3]),          # 图片转PDF/图片批量转ZIP/文件分割/文件合并
+        ("文件处理", [0, 1, 2, 3, 15]),          # 图片转PDF/图片批量转ZIP/文件分割/文件合并/按编码生成压缩包
         ("数据生成", [4, 5, 6]),             # 生成指定大小文件/生成指定长度文本/随机人员信息
         ("开发工具", [8, 7, 9, 10]),         # 接口请求/URL编码解码/JSON格式化/JSON对比
         ("安全测试", [14]),                  # 数据注入
         ("常用工具", [11, 16]),              # 截图识别表格/定时工具
-        (None, [13, 12, 15]),               # 设置/关于/按编码生成压缩包（独立功能）
     ]
 
     def _build_ui(self):
@@ -2237,8 +2236,8 @@ class ToolboxApp(tk.Tk):
         tk.Spinbox(shut_frame, from_=0, to=59, width=4, textvariable=self._shut_min_var).pack(side="left", padx=4)
         self._label(shut_frame, "  频率:").pack(side="left", padx=(12, 4))
         self._shut_freq_var = tk.StringVar(value="仅一次")
-        tk.Combobox(shut_frame, textvariable=self._shut_freq_var, state="readonly",
-                     values=["仅一次", "每天", "工作日", "每月"], width=8).pack(side="left", padx=4)
+        ttk.Combobox(shut_frame, textvariable=self._shut_freq_var, state="readonly",
+                      values=["仅一次", "每天", "工作日", "每月"], width=8).pack(side="left", padx=4)
         tk.Button(shut_frame, text="开启定时关机", command=self._timer_open_shutdown,
                   bg="#e74c3c", fg="white", width=14).pack(side="left", padx=8)
         self._shut_status_var = tk.StringVar(value="未开启")
@@ -2257,8 +2256,8 @@ class ToolboxApp(tk.Tk):
         tk.Spinbox(rem_frame, from_=0, to=59, width=4, textvariable=self._rem_min_var).pack(side="left", padx=4)
         self._label(rem_frame, "  频率:").pack(side="left", padx=(12, 4))
         self._rem_freq_var = tk.StringVar(value="仅一次")
-        tk.Combobox(rem_frame, textvariable=self._rem_freq_var, state="readonly",
-                     values=["仅一次", "每天", "工作日", "每月"], width=8).pack(side="left", padx=4)
+        ttk.Combobox(rem_frame, textvariable=self._rem_freq_var, state="readonly",
+                      values=["仅一次", "每天", "工作日", "每月"], width=8).pack(side="left", padx=4)
         self._label(rem_frame, "  内容:").pack(side="left", padx=(12, 4))
         self._rem_content_var = tk.StringVar(value="该休息一下了")
         tk.Entry(rem_frame, textvariable=self._rem_content_var, width=20).pack(side="left", padx=4)
