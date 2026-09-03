@@ -2267,7 +2267,7 @@ class ToolboxApp(tk.Tk):
         tk.Label(rem_frame, textvariable=self._rem_status_var, bg="#f5f6fa", fg="#7f8c8d").pack(side="left")
 
         # 启动定时检查
-        self._after(5000, self._check_timer)
+        self.after(5000, self._check_timer)
 
     def _timer_open_shutdown(self):
         try:
@@ -2314,7 +2314,7 @@ class ToolboxApp(tk.Tk):
         if getattr(self, "_timer_reminder_active", False):
             if self._timer_match(now, self._timer_reminder_time, self._timer_reminder_freq):
                 self._show_timer_popup("reminder")
-        self._after(30000, self._check_timer)
+        self.after(30000, self._check_timer)
 
     def _timer_match(self, now, target_time, freq):
         if now.hour != target_time[0] or now.minute != target_time[1]:
