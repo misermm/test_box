@@ -1445,7 +1445,7 @@ class ToolboxApp(tk.Tk):
         # 导致所有功能页按钮消失。这里立刻把默认根指回主窗口。
         tk._default_root = self
         self.title(f"{APP_NAME} v{APP_VERSION}")
-        self.geometry("1100x720")
+        self.geometry("1600x960")
         self.minsize(820, 560)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         # 强制显示到最前，避免被主窗口遮挡或未映射
