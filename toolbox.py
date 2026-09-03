@@ -2279,11 +2279,13 @@ class ToolboxApp(tk.Tk):
         except ValueError:
             self._notify("时间格式无效")
             return
+        now = datetime.datetime.now()
+        freq = self._shut_freq_var.get()
         self._timer_shutdown_active = True
         self._timer_shutdown_time = (h, m)
-        self._timer_shutdown_freq = self._shut_freq_var.get()
+        self._timer_shutdown_freq = freq
         self._timer_shutdown_day = now.day if freq == "每月" else None
-        self._shut_status_var.set(f"已开启 {h:02d}:{m:02d} {self._timer_shutdown_freq}")
+        self._shut_status_var.set(f"已开启 {h:02d}:{m:02d} {freq}")
         self._notify(f"定时关机已开启 {h:02d}:{m:02d}")
 
     def _timer_open_reminder(self):
@@ -2296,12 +2298,14 @@ class ToolboxApp(tk.Tk):
         except ValueError:
             self._notify("时间格式无效")
             return
+        now = datetime.datetime.now()
+        freq = self._rem_freq_var.get()
         self._timer_reminder_active = True
         self._timer_reminder_time = (h, m)
-        self._timer_reminder_freq = self._rem_freq_var.get()
+        self._timer_reminder_freq = freq
         self._timer_reminder_content = self._rem_content_var.get().strip() or "该休息一下了"
         self._timer_reminder_day = now.day if freq == "每月" else None
-        self._rem_status_var.set(f"已开启 {h:02d}:{m:02d} {self._timer_reminder_freq}")
+        self._rem_status_var.set(f"已开启 {h:02d}:{m:02d} {freq}")
         self._notify(f"定时提醒已开启 {h:02d}:{m:02d}")
 
     def _check_timer(self):
