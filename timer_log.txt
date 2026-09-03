@@ -618,3 +618,46 @@
 2026-09-03 22:33:29 检查: now=22:33 提醒数=1
 2026-09-03 22:33:31 检查: now=22:33 提醒数=1
 2026-09-03 22:33:33 检查: now=22:33 提醒数=1
+2026-09-03 22:33:48 加载提醒: 存储位置=C:\Users\Joker\AppData\Local\Temp\cfg_test_0okj8v_e\new_root 内容='{"shutdown": null, "reminders": [{"id": 1, "hour": 22, "min": 17, "freq": "仅一次", "day": null, "content": "该休息一下了", "active": false}]}'
+2026-09-03 22:33:53 检查: now=22:33 提醒数=1
+2026-09-03 22:33:55 检查: now=22:33 提醒数=1
+2026-09-03 22:33:57 检查: now=22:33 提醒数=1
+2026-09-03 22:33:59 检查: now=22:33 提醒数=1
+2026-09-03 22:34:01 检查: now=22:34 提醒数=1
+2026-09-03 22:34:03 检查: now=22:34 提醒数=1
+2026-09-03 22:34:18 加载提醒: 存储位置=C:\Users\Joker\AppData\Local\Temp\cfg_test_0okj8v_e\new_root 内容='{"shutdown": null, "reminders": [{"id": 1, "hour": 22, "min": 17, "freq": "仅一次", "day": null, "content": "该休息一下了", "active": false}]}'
+2026-09-03 22:34:23 检查: now=22:34 提醒数=1
+2026-09-03 22:34:25 检查: now=22:34 提醒数=1
+2026-09-03 22:34:27 检查: now=22:34 提醒数=1
+2026-09-03 22:34:29 检查: now=22:34 提醒数=1
+2026-09-03 22:34:36 加载提醒: 存储位置=C:\Users\Joker\AppData\Local\Temp\cfg_test_0okj8v_e\new_root 内容='{"shutdown": null, "reminders": [{"id": 1, "hour": 22, "min": 17, "freq": "仅一次", "day": null, "content": "该休息一下了", "active": false}]}'
+2026-09-03 22:34:41 检查: now=22:34 提醒数=1
+2026-09-03 22:34:43 检查: now=22:34 提醒数=1
+2026-09-03 22:34:45 检查: now=22:34 提醒数=1
+2026-09-03 22:34:46 加载提醒: 存储位置=C:\Users\Joker\AppData\Local\Temp\cfg_test_0okj8v_e\new_root 内容='{"shutdown": null, "reminders": [{"id": 1, "hour": 22, "min": 17, "freq": "仅一次", "day": null, "content": "该休息一下了", "active": false}]}'
+2026-09-03 22:34:47 检查: now=22:34 提醒数=1
+2026-09-03 22:34:49 检查: now=22:34 提醒数=1
+2026-09-03 22:34:51 检查: now=22:34 提醒数=1
+2026-09-03 22:35:14 加载提醒: 存储位置=C:\Users\Joker\AppData\Local\Temp\cfg_test_0okj8v_e\new_root 内容='{"shutdown": null, "reminders": [{"id": 1, "hour": 22, "min": 17, "freq": "仅一次", "day": null, "content": "该休息一下了", "active": false}]}'
+2026-09-03 22:35:16 加载提醒: 存储位置=C:\Users\Joker\AppData\Local\Temp\cfg_test_0okj8v_e\new_root 内容='{"shutdown": null, "reminders": [{"id": 1, "hour": 22, "min": 17, "freq": "仅一次", "day": null, "content": "该休息一下了", "active": false}]}'
+2026-09-03 22:35:19 检查: now=22:35 提醒数=1
+2026-09-03 22:35:19 保存提醒: 存储位置=C:\Users\Joker\AppData\Local\Temp\cfg_test_0okj8v_e\new_root 内容={"shutdown": null, "reminders": []}
+2026-09-03 22:35:21 检查: now=22:35 提醒数=0
+2026-09-03 22:35:23 检查: now=22:35 提醒数=0
+2026-09-03 22:35:25 检查: now=22:35 提醒数=0
+2026-09-03 22:35:27 检查: now=22:35 提醒数=0
+2026-09-03 22:35:28 保存提醒: 存储位置=C:\Users\Joker\AppData\Local\Temp\cfg_test_0okj8v_e\new_root 内容={"shutdown": null, "reminders": [{"id": 1, "hour": 22, "min": 36, "freq": "仅一次", "day": null, "content": "该休息一下了", "active": true}]}
+2026-09-03 22:35:29 检查: now=22:35 提醒数=1
+2026-09-03 22:35:31 检查: now=22:35 提醒数=1
+2026-09-03 22:35:33 检查: now=22:35 提醒数=1
+2026-09-03 22:35:34 加载提醒: 存储位置=C:\Users\Joker\AppData\Local\Temp\cfg_test_0okj8v_e\new_root 内容='{"shutdown": null, "reminders": [{"id": 1, "hour": 22, "min": 36, "freq": "仅一次", "day": null, "content": "该休息一下了", "active": true}]}'
+2026-09-03 22:35:35 检查: now=22:35 提醒数=1
+2026-09-03 22:35:37 检查: now=22:35 提醒数=1
+2026-09-03 22:35:39 检查: now=22:35 提醒数=1
+2026-09-03 22:35:39 检查: now=22:35 提醒数=1
+2026-09-03 22:35:41 检查: now=22:35 提醒数=1
+2026-09-03 22:35:41 检查: now=22:35 提醒数=1
+2026-09-03 22:35:43 检查: now=22:35 提醒数=1
+2026-09-03 22:35:43 检查: now=22:35 提醒数=1
+2026-09-03 22:35:45 检查: now=22:35 提醒数=1
+2026-09-03 22:35:47 检查: now=22:35 提醒数=1

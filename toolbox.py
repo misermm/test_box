@@ -1588,15 +1588,7 @@ class ToolboxApp(tk.Tk):
     ]
 
     def _build_ui(self):
-        left = tk.Frame(self, bg="#2c3e50")
-        left.pack(side="left", fill="y")
-        self._menu_frame = left
-
-        right = tk.Frame(self, bg="#f5f6fa")
-        right.pack(side="left", fill="both", expand=True)
-
-        self._build_menu(left)
-        # 菜单宽度自适应：测量最长菜单文字宽度，紧贴内容
+        # 先测量菜单文字宽度，再创建左侧 Frame（pack 后再 configure width 不会重排）
         try:
             import tkinter.font as tkfont
             self.update_idletasks()
@@ -1606,10 +1598,19 @@ class ToolboxApp(tk.Tk):
                 for i in idxs:
                     texts.append(self._page_title(i))
             longest = max(f.measure(t) for t in texts)
-            need = longest + 28  # container padx(2*2) + menu padx((4+12)*2) - 余量
-            left.configure(width=need)
+            left_w = longest + 28  # container padx + menu item padx
         except Exception:
-            pass
+            left_w = 180
+
+        left = tk.Frame(self, bg="#2c3e50", width=left_w)
+        left.pack(side="left", fill="y")
+        left.pack_propagate(False)
+        self._menu_frame = left
+
+        right = tk.Frame(self, bg="#f5f6fa")
+        right.pack(side="left", fill="both", expand=True)
+
+        self._build_menu(left)
         _boot_progress(30, "正在构建功能页面...")
 
         self.title_label = tk.Label(right, bg="#f5f6fa", fg="#2c3e50",
