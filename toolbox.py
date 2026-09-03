@@ -1207,7 +1207,7 @@ def table_data_to_clipboard(widget, table_data):
 # ==================== 主程序 ====================
 
 APP_NAME = "测试工具箱"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 
 IMAGE_EXTS = [
     ("图片文件", "*.jpg *.jpeg *.png *.bmp *.tiff *.tif *.gif"),
