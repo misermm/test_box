@@ -7,6 +7,8 @@
 import os
 import sys
 import json
+import datetime
+import subprocess
 
 # Windows 平台：隐藏子进程的控制台窗口（防止exe启动时闪现cmd窗口）
 if sys.platform == 'win32':
@@ -1516,6 +1518,7 @@ class ToolboxApp(tk.Tk):
         _boot_progress(70, "主界面构建完成，加载默认页面...")
         self._select_menu(0)
         _boot_progress(95, "准备就绪")
+        self._update_holidays()
         # 全局快捷键启动即生效：页面是懒构建的，若只在 OCR 页初始化，
         # 用户不访问该页则快捷键永远不会激活
         self._init_ocr_hotkey()
@@ -1523,11 +1526,12 @@ class ToolboxApp(tk.Tk):
     # ---------------- UI 搭建 ----------------
     # 菜单结构：一级为分组名（可折叠），二级为功能页；独立功能（组名为 None）保持一级
     _MENU_GROUPS = [
-        ("文件处理", [0, 1, 2, 3, 15]),    # 图片转PDF/图片批量转ZIP/文件分割/文件合并/按编码生成压缩包
-        ("数据生成", [4, 5, 6]),          # 生成指定大小文件/生成指定长度文本/随机人员信息
-        ("开发工具", [8, 7, 9, 10]),      # 接口请求/URL编码解码/JSON格式化/JSON对比
-        ("安全测试", [14]),               # 数据注入
-        (None, [11, 13, 12]),             # 截图识别表格/设置/关于（独立功能不分组，设置在关于上方）
+        ("文件处理", [0, 1, 2, 3]),          # 图片转PDF/图片批量转ZIP/文件分割/文件合并
+        ("数据生成", [4, 5, 6]),             # 生成指定大小文件/生成指定长度文本/随机人员信息
+        ("开发工具", [8, 7, 9, 10]),         # 接口请求/URL编码解码/JSON格式化/JSON对比
+        ("安全测试", [14]),                  # 数据注入
+        ("常用工具", [11, 16]),              # 截图识别表格/定时工具
+        (None, [13, 12, 15]),               # 设置/关于/按编码生成压缩包（独立功能）
     ]
 
     def _build_ui(self):
@@ -1669,7 +1673,7 @@ class ToolboxApp(tk.Tk):
     def _page_title(self, index):
         return ["图片转 PDF", "单图单PDF转ZIP", "文件分割", "文件合并",
                 "生成指定大小文件", "生成指定长度文本", "随机人员信息",
-                "URL编码解码", "接口请求", "JSON格式化", "JSON对比", "截图识别表格", "关于", "设置", "数据注入", "按编码生成压缩包"][index]
+                "URL编码解码", "接口请求", "JSON格式化", "JSON对比", "截图识别表格", "关于", "设置", "数据注入", "按编码生成压缩包", "定时工具"][index]
 
     def _select_menu(self, index):
         self._save_current_log()
@@ -1733,6 +1737,8 @@ class ToolboxApp(tk.Tk):
                         self._show_page_security()
                     elif index == 15:
                         self._show_page_zipenc()
+                    elif index == 16:
+                        self._show_page_timer()
         except Exception:
             _err = traceback.format_exc()
             try:
@@ -2204,7 +2210,238 @@ class ToolboxApp(tk.Tk):
         except Exception as e:
             self._notify("生成失败: %s" % e)
 
-    # =============== 页面3: 文件分割 ===============
+    # =============== 页面16: 定时工具 ===============
+    def _show_page_timer(self):
+        self.title_label.config(text="定时工具")
+
+        # ---- 定时关机 ----
+        tk.Label(self.content, text="定时关机", bg="#f5f6fa", fg="#2c3e50",
+                  font=("Microsoft YaHei UI", 12, "bold")).pack(anchor="w", pady=(0, 6))
+        shut_frame = tk.Frame(self.content, bg="#f5f6fa")
+        shut_frame.pack(fill="x", pady=(0, 6))
+        self._label(shut_frame, "时间:").pack(side="left")
+        self._shut_hour_var = tk.StringVar(value="23")
+        self._shut_min_var = tk.StringVar(value="00")
+        tk.Spinbox(shut_frame, from_=0, to=23, width=4, textvariable=self._shut_hour_var).pack(side="left", padx=4)
+        self._label(shut_frame, ":").pack(side="left")
+        tk.Spinbox(shut_frame, from_=0, to=59, width=4, textvariable=self._shut_min_var).pack(side="left", padx=4)
+        self._label(shut_frame, "  频率:").pack(side="left", padx=(12, 4))
+        self._shut_freq_var = tk.StringVar(value="仅一次")
+        tk.Combobox(shut_frame, textvariable=self._shut_freq_var, state="readonly",
+                     values=["仅一次", "每天", "工作日", "每月"], width=8).pack(side="left", padx=4)
+        tk.Button(shut_frame, text="开启定时关机", command=self._timer_open_shutdown,
+                  bg="#e74c3c", fg="white", width=14).pack(side="left", padx=8)
+        self._shut_status_var = tk.StringVar(value="未开启")
+        tk.Label(shut_frame, textvariable=self._shut_status_var, bg="#f5f6fa", fg="#7f8c8d").pack(side="left")
+
+        # ---- 定时提醒 ----
+        tk.Label(self.content, text="定时提醒", bg="#f5f6fa", fg="#2c3e50",
+                  font=("Microsoft YaHei UI", 12, "bold")).pack(anchor="w", pady=(12, 6))
+        rem_frame = tk.Frame(self.content, bg="#f5f6fa")
+        rem_frame.pack(fill="x", pady=(0, 6))
+        self._label(rem_frame, "时间:").pack(side="left")
+        self._rem_hour_var = tk.StringVar(value="09")
+        self._rem_min_var = tk.StringVar(value="00")
+        tk.Spinbox(rem_frame, from_=0, to=23, width=4, textvariable=self._rem_hour_var).pack(side="left", padx=4)
+        self._label(rem_frame, ":").pack(side="left")
+        tk.Spinbox(rem_frame, from_=0, to=59, width=4, textvariable=self._rem_min_var).pack(side="left", padx=4)
+        self._label(rem_frame, "  频率:").pack(side="left", padx=(12, 4))
+        self._rem_freq_var = tk.StringVar(value="仅一次")
+        tk.Combobox(rem_frame, textvariable=self._rem_freq_var, state="readonly",
+                     values=["仅一次", "每天", "工作日", "每月"], width=8).pack(side="left", padx=4)
+        self._label(rem_frame, "  内容:").pack(side="left", padx=(12, 4))
+        self._rem_content_var = tk.StringVar(value="该休息一下了")
+        tk.Entry(rem_frame, textvariable=self._rem_content_var, width=20).pack(side="left", padx=4)
+        tk.Button(rem_frame, text="开启定时提醒", command=self._timer_open_reminder,
+                  bg="#3498db", fg="white", width=14).pack(side="left", padx=8)
+        self._rem_status_var = tk.StringVar(value="未开启")
+        tk.Label(rem_frame, textvariable=self._rem_status_var, bg="#f5f6fa", fg="#7f8c8d").pack(side="left")
+
+        # 启动定时检查
+        self._after(5000, self._check_timer)
+
+    def _timer_open_shutdown(self):
+        try:
+            h = int(self._shut_hour_var.get())
+            m = int(self._shut_min_var.get())
+            if not (0 <= h <= 23 and 0 <= m <= 59):
+                self._notify("时间格式无效")
+                return
+        except ValueError:
+            self._notify("时间格式无效")
+            return
+        self._timer_shutdown_active = True
+        self._timer_shutdown_time = (h, m)
+        self._timer_shutdown_freq = self._shut_freq_var.get()
+        self._timer_shutdown_day = now.day if freq == "每月" else None
+        self._shut_status_var.set(f"已开启 {h:02d}:{m:02d} {self._timer_shutdown_freq}")
+        self._notify(f"定时关机已开启 {h:02d}:{m:02d}")
+
+    def _timer_open_reminder(self):
+        try:
+            h = int(self._rem_hour_var.get())
+            m = int(self._rem_min_var.get())
+            if not (0 <= h <= 23 and 0 <= m <= 59):
+                self._notify("时间格式无效")
+                return
+        except ValueError:
+            self._notify("时间格式无效")
+            return
+        self._timer_reminder_active = True
+        self._timer_reminder_time = (h, m)
+        self._timer_reminder_freq = self._rem_freq_var.get()
+        self._timer_reminder_content = self._rem_content_var.get().strip() or "该休息一下了"
+        self._timer_reminder_day = now.day if freq == "每月" else None
+        self._rem_status_var.set(f"已开启 {h:02d}:{m:02d} {self._timer_reminder_freq}")
+        self._notify(f"定时提醒已开启 {h:02d}:{m:02d}")
+
+    def _check_timer(self):
+        if self._winfo_exists() is False:
+            return
+        now = datetime.datetime.now()
+        if getattr(self, "_timer_shutdown_active", False):
+            if self._timer_match(now, self._timer_shutdown_time, self._timer_shutdown_freq):
+                self._show_timer_popup("shutdown")
+        if getattr(self, "_timer_reminder_active", False):
+            if self._timer_match(now, self._timer_reminder_time, self._timer_reminder_freq):
+                self._show_timer_popup("reminder")
+        self._after(30000, self._check_timer)
+
+    def _timer_match(self, now, target_time, freq):
+        if now.hour != target_time[0] or now.minute != target_time[1]:
+            return False
+        if freq == "仅一次":
+            return True
+        if freq == "每天":
+            return True
+        if freq == "工作日":
+            if now.weekday() >= 5:
+                return False
+            return not self._is_holiday(now)
+        if freq == "每月":
+            day = getattr(self, "_timer_shutdown_day", None) or getattr(self, "_timer_reminder_day", None) or now.day
+            return now.day == day
+        return False
+
+    def _is_holiday(self, dt):
+        if not getattr(self, "_holiday_set", None):
+            return False
+        key = dt.strftime("%Y-%m-%d")
+        return key in self._holiday_set
+
+    def _update_holidays(self):
+        try:
+            import urllib.request
+            year = datetime.datetime.now().year
+            url = f"https://api.gdcheng.com/holiday/{year}.json"
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            holidays = set()
+            items = data.get("data", data) if isinstance(data, dict) else data
+            for item in items:
+                if isinstance(item, dict):
+                    d = item.get("date") or item.get("day") or ""
+                else:
+                    d = str(item)
+                if d:
+                    holidays.add(d[:10])
+            self._holiday_set = holidays
+            _write_config("holiday_data", json.dumps(list(holidays)))
+        except Exception:
+            try:
+                saved = _read_config("holiday_data")
+                if saved:
+                    self._holiday_set = set(json.loads(saved))
+            except Exception:
+                self._holiday_set = set()
+        if not getattr(self, "_holiday_set", None):
+            self._holiday_set = set()
+
+    def _show_timer_popup(self, kind):
+        if getattr(self, "_timer_popup_shown", False):
+            return
+        self._timer_popup_shown = True
+        popup = _TimerPopup(self, kind,
+                            self._timer_reminder_content if kind == "reminder" else None,
+                            self._timer_shutdown_active and kind == "shutdown")
+        popup.grab_set()
+        self.wait_window(popup)
+        self._timer_popup_shown = False
+
+
+class _TimerPopup(tk.Toplevel):
+    def __init__(self, parent, kind, content=None, is_shutdown=False):
+        super().__init__(parent)
+        self.kind = kind
+        self.is_shutdown = is_shutdown
+        self.title("定时提醒")
+        self.resizable(False, False)
+        self.attributes("-topmost", True)
+        self.configure(bg="#ffffff")
+        w, h = 360, 110
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        self.geometry(f"{w}x{h}+{sw - w - 20}+{sh - h - 20}")
+
+        canvas = tk.Canvas(self, width=w, height=h, bg="#ffffff", highlightthickness=0)
+        canvas.pack()
+
+        if kind == "shutdown":
+            text = "准备关闭计算机，请确认"
+        else:
+            text = content or "该休息一下了"
+
+        canvas.create_text(w // 2, 30, text=text, font=("Microsoft YaHei UI", 11, "bold"),
+                            fill="#2c3e50", anchor="n")
+
+        btn_y = 70
+        bw, bh = 80, 30
+        bx = w // 2 - bw - 10
+        # 确认按钮
+        btn_confirm = tk.Button(canvas, text="确认", font=("Microsoft YaHei UI", 10, "bold"),
+                                  fg="white", bg="#1abc9c", width=8, height=1,
+                                  command=self._on_confirm, relief="flat")
+        btn_confirm.place(x=bx, y=btn_y, width=bw, height=bh)
+        # 稍后按钮
+        btn_later = tk.Button(canvas, text="稍后", font=("Microsoft YaHei UI", 10, "bold"),
+                                fg="white", bg="#95a5a6", width=8, height=1,
+                                command=self._on_later, relief="flat")
+        btn_later.place(x=bx + bw + 20, y=btn_y, width=bw, height=bh)
+
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _on_confirm(self):
+        if self.is_shutdown:
+            self.destroy()
+            try:
+                _subprocess.run(["shutdown", "/s", "/t", "0"], check=True)
+            except Exception:
+                pass
+            return
+        self.destroy()
+
+    def _on_later(self):
+        if self.is_shutdown:
+            try:
+                _subprocess.run(["shutdown", "/a"], check=True)
+            except Exception:
+                pass
+            app = getattr(self, "master", None)
+            if app and hasattr(app, "_timer_shutdown_active"):
+                app.after(300000, lambda: app._show_timer_popup("shutdown"))
+        self.destroy()
+
+    def _on_close(self):
+        if self.is_shutdown:
+            try:
+                _subprocess.run(["shutdown", "/a"], check=True)
+            except Exception:
+                pass
+        self.destroy()
+
+
+# =============== 页面3: 文件分割 ===============
     def _show_page_split(self):
         self.title_label.config(text="文件分割")
         self._label(self.content, "将一个文件按指定大小分割为多个 ZIP 文件。").pack(anchor="w", pady=(0, 8))
@@ -4406,7 +4643,11 @@ class ToolboxApp(tk.Tk):
         self._menubar = tk.Menu(self)
         settings_menu = tk.Menu(self._menubar, tearoff=0)
         settings_menu.add_command(label="字体大小", command=self._change_font_size)
+        settings_menu.add_command(label="设置页", command=lambda: self._select_menu(13))
         self._menubar.add_cascade(label="设置", menu=settings_menu)
+        about_menu = tk.Menu(self._menubar, tearoff=0)
+        about_menu.add_command(label="关于", command=lambda: self._select_menu(12))
+        self._menubar.add_cascade(label="关于", menu=about_menu)
         self.config(menu=self._menubar)
 
     def _change_font_size(self):
