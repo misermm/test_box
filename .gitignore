@@ -19,3 +19,12 @@ models/
 
 # 打包产物
 dist/
+
+# 构建日志
+build_output.log
+http_page_build_error.log
+page_build_error.log
+
+# 临时文件
+cache/
+sedwX5qG4
