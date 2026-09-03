@@ -2236,8 +2236,22 @@ class ToolboxApp(tk.Tk):
         tk.Spinbox(shut_frame, from_=0, to=59, width=4, textvariable=self._shut_min_var).pack(side="left", padx=4)
         self._label(shut_frame, "  频率:").pack(side="left", padx=(12, 4))
         self._shut_freq_var = tk.StringVar(value="仅一次")
-        ttk.Combobox(shut_frame, textvariable=self._shut_freq_var, state="readonly",
-                      values=["仅一次", "每天", "工作日", "每月"], width=8).pack(side="left", padx=4)
+        shut_freq_combo = ttk.Combobox(shut_frame, textvariable=self._shut_freq_var, state="readonly",
+                      values=["仅一次", "每天", "工作日", "每月"], width=8)
+        shut_freq_combo.pack(side="left", padx=4)
+        self._shut_day_var = tk.StringVar(value="1")
+        self._shut_day_frame = tk.Frame(shut_frame, bg="#f5f6fa")
+        self._label(self._shut_day_frame, "每月").pack(side="left")
+        tk.Spinbox(self._shut_day_frame, from_=1, to=31, width=4, textvariable=self._shut_day_var).pack(side="left", padx=2)
+        self._label(self._shut_day_frame, "号").pack(side="left")
+        self._shut_day_frame.pack(side="left", padx=4)
+        self._shut_day_frame.pack_forget()
+        def _on_shut_freq_change(*_):
+            if self._shut_freq_var.get() == "每月":
+                self._shut_day_frame.pack(side="left", padx=4)
+            else:
+                self._shut_day_frame.pack_forget()
+        self._shut_freq_var.trace_add("write", _on_shut_freq_change)
         tk.Button(shut_frame, text="开启定时关机", command=self._timer_open_shutdown,
                   bg="#e74c3c", fg="white", width=14).pack(side="left", padx=8)
         self._shut_status_var = tk.StringVar(value="未开启")
@@ -2256,15 +2270,44 @@ class ToolboxApp(tk.Tk):
         tk.Spinbox(rem_frame, from_=0, to=59, width=4, textvariable=self._rem_min_var).pack(side="left", padx=4)
         self._label(rem_frame, "  频率:").pack(side="left", padx=(12, 4))
         self._rem_freq_var = tk.StringVar(value="仅一次")
-        ttk.Combobox(rem_frame, textvariable=self._rem_freq_var, state="readonly",
-                      values=["仅一次", "每天", "工作日", "每月"], width=8).pack(side="left", padx=4)
+        rem_freq_combo = ttk.Combobox(rem_frame, textvariable=self._rem_freq_var, state="readonly",
+                      values=["仅一次", "每天", "工作日", "每月"], width=8)
+        rem_freq_combo.pack(side="left", padx=4)
+        self._rem_day_var = tk.StringVar(value="1")
+        self._rem_day_frame = tk.Frame(rem_frame, bg="#f5f6fa")
+        self._label(self._rem_day_frame, "每月").pack(side="left")
+        tk.Spinbox(self._rem_day_frame, from_=1, to=31, width=4, textvariable=self._rem_day_var).pack(side="left", padx=2)
+        self._label(self._rem_day_frame, "号").pack(side="left")
+        self._rem_day_frame.pack(side="left", padx=4)
+        self._rem_day_frame.pack_forget()
+        def _on_rem_freq_change(*_):
+            if self._rem_freq_var.get() == "每月":
+                self._rem_day_frame.pack(side="left", padx=4)
+            else:
+                self._rem_day_frame.pack_forget()
+        self._rem_freq_var.trace_add("write", _on_rem_freq_change)
         self._label(rem_frame, "  内容:").pack(side="left", padx=(12, 4))
         self._rem_content_var = tk.StringVar(value="该休息一下了")
         tk.Entry(rem_frame, textvariable=self._rem_content_var, width=20).pack(side="left", padx=4)
-        tk.Button(rem_frame, text="开启定时提醒", command=self._timer_open_reminder,
+        self._rem_editing_id = None
+        self._rem_btn_var = tk.StringVar(value="添加提醒")
+        tk.Button(rem_frame, textvariable=self._rem_btn_var, command=self._timer_add_or_update_reminder,
                   bg="#3498db", fg="white", width=14).pack(side="left", padx=8)
-        self._rem_status_var = tk.StringVar(value="未开启")
-        tk.Label(rem_frame, textvariable=self._rem_status_var, bg="#f5f6fa", fg="#7f8c8d").pack(side="left")
+        tk.Button(rem_frame, text="清空", command=self._timer_clear_reminder_form,
+                  bg="#95a5a6", fg="white", width=6).pack(side="left", padx=4)
+
+        # ---- 已设置的提醒列表 ----
+        self._reminders = []
+        self._load_reminders()
+        rem_list_frame = tk.Frame(self.content, bg="#f5f6fa")
+        rem_list_frame.pack(fill="both", expand=True, pady=(6, 0))
+        self._rem_list_frame = rem_list_frame
+        self._refresh_reminder_list()
+
+        # ---- 关机定时状态 ----
+        if getattr(self, "_shutdown_timer", None) and self._shutdown_timer.get("active"):
+            t = self._shutdown_timer
+            self._shut_status_var.set(f"已开启 {t['hour']:02d}:{t['min']:02d} {t['freq']}")
 
         # 启动定时检查
         self.after(5000, self._check_timer)
@@ -2279,16 +2322,13 @@ class ToolboxApp(tk.Tk):
         except ValueError:
             self._notify("时间格式无效")
             return
-        now = datetime.datetime.now()
         freq = self._shut_freq_var.get()
-        self._timer_shutdown_active = True
-        self._timer_shutdown_time = (h, m)
-        self._timer_shutdown_freq = freq
-        self._timer_shutdown_day = now.day if freq == "每月" else None
-        self._shut_status_var.set(f"已开启 {h:02d}:{m:02d} {freq}")
+        day = int(self._shut_day_var.get()) if freq == "每月" else None
+        self._shutdown_timer = {"hour": h, "min": m, "freq": freq, "day": day, "active": True}
+        self._shut_status_var.set(f"已开启 {h:02d}:{m:02d} {freq}" + (f" {day}号" if day else ""))
         self._notify(f"定时关机已开启 {h:02d}:{m:02d}")
 
-    def _timer_open_reminder(self):
+    def _timer_add_or_update_reminder(self):
         try:
             h = int(self._rem_hour_var.get())
             m = int(self._rem_min_var.get())
@@ -2298,31 +2338,122 @@ class ToolboxApp(tk.Tk):
         except ValueError:
             self._notify("时间格式无效")
             return
-        now = datetime.datetime.now()
         freq = self._rem_freq_var.get()
-        self._timer_reminder_active = True
-        self._timer_reminder_time = (h, m)
-        self._timer_reminder_freq = freq
-        self._timer_reminder_content = self._rem_content_var.get().strip() or "该休息一下了"
-        self._timer_reminder_day = now.day if freq == "每月" else None
-        self._rem_status_var.set(f"已开启 {h:02d}:{m:02d} {freq}")
-        self._notify(f"定时提醒已开启 {h:02d}:{m:02d}")
+        day = int(self._rem_day_var.get()) if freq == "每月" else None
+        content = self._rem_content_var.get().strip() or "该休息一下了"
+        if self._rem_editing_id is not None:
+            for r in self._reminders:
+                if r["id"] == self._rem_editing_id:
+                    r.update({"hour": h, "min": m, "freq": freq, "day": day, "content": content, "active": True})
+                    break
+            self._rem_editing_id = None
+            self._rem_btn_var.set("添加提醒")
+            self._notify(f"提醒已更新 {h:02d}:{m:02d}")
+        else:
+            rid = max((r["id"] for r in self._reminders), default=0) + 1
+            self._reminders.append({"id": rid, "hour": h, "min": m, "freq": freq, "day": day, "content": content, "active": True})
+            self._notify(f"定时提醒已添加 {h:02d}:{m:02d}")
+        self._save_reminders()
+        self._refresh_reminder_list()
+
+    def _timer_clear_reminder_form(self):
+        self._rem_hour_var.set("09")
+        self._rem_min_var.set("00")
+        self._rem_freq_var.set("仅一次")
+        self._rem_content_var.set("该休息一下了")
+        self._rem_editing_id = None
+        self._rem_btn_var.set("添加提醒")
+
+    def _timer_edit_reminder(self, rid):
+        for r in self._reminders:
+            if r["id"] == rid:
+                self._rem_hour_var.set(f"{r['hour']:02d}")
+                self._rem_min_var.set(f"{r['min']:02d}")
+                self._rem_freq_var.set(r["freq"])
+                if r["day"]:
+                    self._rem_day_var.set(str(r["day"]))
+                self._rem_content_var.set(r["content"])
+                self._rem_editing_id = rid
+                self._rem_btn_var.set("更新提醒")
+                break
+
+    def _timer_delete_reminder(self, rid):
+        self._reminders = [r for r in self._reminders if r["id"] != rid]
+        self._save_reminders()
+        self._refresh_reminder_list()
+        self._notify("提醒已删除")
+
+    def _refresh_reminder_list(self):
+        for w in self._rem_list_frame.winfo_children():
+            w.destroy()
+        if not self._reminders:
+            tk.Label(self._rem_list_frame, text="暂无已设置的提醒", bg="#f5f6fa", fg="#95a5a6",
+                      font=("Microsoft YaHei UI", 10)).pack(anchor="w", pady=8)
+            return
+        for r in self._reminders:
+            row = tk.Frame(self._rem_list_frame, bg="white", relief="solid", bd=1)
+            row.pack(fill="x", pady=2)
+            status = "✓" if r["active"] else "✗"
+            fg = "#27ae60" if r["active"] else "#e74c3c"
+            tk.Label(row, text=status, bg="white", fg=fg, font=("Microsoft YaHei UI", 11, "bold"), width=2).pack(side="left")
+            day_str = f" 每月{r['day']}号" if r.get("day") else ""
+            info = f"{r['hour']:02d}:{r['min']:02d} {r['freq']}{day_str} \"{r['content']}\""
+            tk.Label(row, text=info, bg="white", fg="#2c3e50", font=("Microsoft YaHei UI", 10), anchor="w").pack(side="left", fill="x", expand=True, padx=4)
+            def _toggle_active(_r=r):
+                _r["active"] = not _r["active"]
+                self._save_reminders()
+                self._refresh_reminder_list()
+            btn_frame = tk.Frame(row, bg="white")
+            btn_frame.pack(side="right", padx=4)
+            tk.Button(btn_frame, text="启用/停用", command=_toggle_active, bg="#f39c12", fg="white", width=8).pack(side="left", padx=2)
+            def _edit(_r=r):
+                self._timer_edit_reminder(_r["id"])
+            tk.Button(btn_frame, text="编辑", command=_edit, bg="#3498db", fg="white", width=5).pack(side="left", padx=2)
+            def _delete(_r=r):
+                self._timer_delete_reminder(_r["id"])
+            tk.Button(btn_frame, text="删除", command=_delete, bg="#e74c3c", fg="white", width=5).pack(side="left", padx=2)
+
+    def _save_reminders(self):
+        import json as _json
+        data = {
+            "shutdown": self._shutdown_timer,
+            "reminders": self._reminders,
+        }
+        _write_config("timer_data", _json.dumps(data, ensure_ascii=False))
+
+    def _load_reminders(self):
+        import json as _json
+        try:
+            raw = _read_config("timer_data")
+            if raw:
+                data = _json.loads(raw)
+                self._shutdown_timer = data.get("shutdown")
+                self._reminders = data.get("reminders", [])
+            else:
+                self._shutdown_timer = None
+                self._reminders = []
+        except Exception:
+            self._shutdown_timer = None
+            self._reminders = []
 
     def _check_timer(self):
         if self._winfo_exists() is False:
             return
         now = datetime.datetime.now()
-        if getattr(self, "_timer_shutdown_active", False):
-            if self._timer_match(now, self._timer_shutdown_time, self._timer_shutdown_freq):
+        if getattr(self, "_shutdown_timer", None) and self._shutdown_timer.get("active"):
+            if self._timer_match(now, self._shutdown_timer):
                 self._show_timer_popup("shutdown")
-        if getattr(self, "_timer_reminder_active", False):
-            if self._timer_match(now, self._timer_reminder_time, self._timer_reminder_freq):
-                self._show_timer_popup("reminder")
+        for r in list(self._reminders):
+            if r.get("active"):
+                if self._timer_match(now, r):
+                    self._show_timer_popup("reminder", r)
         self.after(30000, self._check_timer)
 
-    def _timer_match(self, now, target_time, freq):
-        if now.hour != target_time[0] or now.minute != target_time[1]:
+    def _timer_match(self, now, timer):
+        h, m = timer["hour"], timer["min"]
+        if now.hour != h or now.minute != m:
             return False
+        freq = timer["freq"]
         if freq == "仅一次":
             return True
         if freq == "每天":
@@ -2332,7 +2463,7 @@ class ToolboxApp(tk.Tk):
                 return False
             return not self._is_holiday(now)
         if freq == "每月":
-            day = getattr(self, "_timer_shutdown_day", None) or getattr(self, "_timer_reminder_day", None) or now.day
+            day = timer.get("day") or now.day
             return now.day == day
         return False
 
@@ -2371,16 +2502,30 @@ class ToolboxApp(tk.Tk):
         if not getattr(self, "_holiday_set", None):
             self._holiday_set = set()
 
-    def _show_timer_popup(self, kind):
+    def _show_timer_popup(self, kind, reminder=None):
         if getattr(self, "_timer_popup_shown", False):
             return
         self._timer_popup_shown = True
-        popup = _TimerPopup(self, kind,
-                            self._timer_reminder_content if kind == "reminder" else None,
-                            self._timer_shutdown_active and kind == "shutdown")
+        content = None
+        is_shutdown = False
+        if kind == "shutdown":
+            is_shutdown = True
+        elif reminder:
+            content = reminder.get("content", "该休息一下了")
+        popup = _TimerPopup(self, kind, content=content, is_shutdown=is_shutdown)
         popup.grab_set()
         self.wait_window(popup)
         self._timer_popup_shown = False
+        if kind == "shutdown" and self._shutdown_timer and self._shutdown_timer.get("active"):
+            if self._shutdown_timer.get("freq") == "仅一次":
+                self._shutdown_timer["active"] = False
+                self._shut_status_var.set("未开启")
+                self._save_reminders()
+        elif kind == "reminder" and reminder:
+            if reminder.get("freq") == "仅一次":
+                reminder["active"] = False
+                self._save_reminders()
+                self._refresh_reminder_list()
 
     # =============== 页面3: 文件分割 ===============
     def _show_page_split(self):
@@ -4580,10 +4725,8 @@ class ToolboxApp(tk.Tk):
 
     # ---------------- 退出 ----------------
     def _setup_menu_bar(self):
-        import tkinter.font as tkfont
         self._menubar = tk.Menu(self)
         settings_menu = tk.Menu(self._menubar, tearoff=0)
-        settings_menu.add_command(label="字体大小", command=self._change_font_size)
         settings_menu.add_command(label="设置页", command=lambda: self._select_menu(13))
         self._menubar.add_cascade(label="设置", menu=settings_menu)
         about_menu = tk.Menu(self._menubar, tearoff=0)
@@ -4675,7 +4818,7 @@ class _TimerPopup(tk.Toplevel):
             except Exception:
                 pass
             app = getattr(self, "master", None)
-            if app and hasattr(app, "_timer_shutdown_active"):
+            if app and hasattr(app, "_shutdown_timer"):
                 app.after(300000, lambda: app._show_timer_popup("shutdown"))
         self.destroy()
 
