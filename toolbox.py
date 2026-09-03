@@ -1602,14 +1602,15 @@ class ToolboxApp(tk.Tk):
         except Exception:
             left_w = 200
 
-        pane = ttk.Panedwindow(self, orient="horizontal")
+        pane = tk.PanedWindow(self, orient="horizontal", sashwidth=4,
+                              sashrelief="flat", bg="#d0d0d0", opaqueresize=True)
         pane.pack(side="left", fill="both", expand=True)
-        left = tk.Frame(pane, bg="#2c3e50", width=left_w)
-        pane.add(left, weight=0)
+        left = tk.Frame(pane, bg="#2c3e50")
+        pane.add(left, width=left_w, minsize=100)
         self._menu_frame = left
 
         right = tk.Frame(pane, bg="#f5f6fa")
-        pane.add(right, weight=1)
+        pane.add(right)
 
         self._build_menu(left)
         _boot_progress(30, "正在构建功能页面...")
