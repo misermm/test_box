@@ -1535,6 +1535,9 @@ class ToolboxApp(tk.Tk):
         # 全局快捷键启动即生效：页面是懒构建的，若只在 OCR 页初始化，
         # 用户不访问该页则快捷键永远不会激活
         self._init_ocr_hotkey()
+        # 启动定时检查（程序启动即生效，不依赖是否打开过定时页面）
+        self._timer_check_started = True
+        self.after(5000, self._check_timer)
 
     # ---------------- UI 搭建 ----------------
     # 菜单结构：一级为分组名（可折叠），二级为功能页；独立功能（组名为 None）保持一级
@@ -2309,8 +2312,10 @@ class ToolboxApp(tk.Tk):
             t = self._shutdown_timer
             self._shut_status_var.set(f"已开启 {t['hour']:02d}:{t['min']:02d} {t['freq']}")
 
-        # 启动定时检查
-        self.after(5000, self._check_timer)
+        # 启动定时检查（全局，不依赖页面是否打开）
+        if not getattr(self, "_timer_check_started", False):
+            self._timer_check_started = True
+            self.after(5000, self._check_timer)
 
     def _timer_open_shutdown(self):
         try:
@@ -2437,17 +2442,20 @@ class ToolboxApp(tk.Tk):
             self._reminders = []
 
     def _check_timer(self):
-        if self._winfo_exists() is False:
-            return
-        now = datetime.datetime.now()
-        if getattr(self, "_shutdown_timer", None) and self._shutdown_timer.get("active"):
-            if self._timer_match(now, self._shutdown_timer):
-                self._show_timer_popup("shutdown")
-        for r in list(self._reminders):
-            if r.get("active"):
-                if self._timer_match(now, r):
-                    self._show_timer_popup("reminder", r)
-        self.after(30000, self._check_timer)
+        try:
+            if self._winfo_exists() is False:
+                return
+            now = datetime.datetime.now()
+            if getattr(self, "_shutdown_timer", None) and self._shutdown_timer.get("active"):
+                if self._timer_match(now, self._shutdown_timer):
+                    self._show_timer_popup("shutdown")
+            for r in list(self._reminders):
+                if r.get("active"):
+                    if self._timer_match(now, r):
+                        self._show_timer_popup("reminder", r)
+        except Exception:
+            pass
+        self.after(10000, self._check_timer)
 
     def _timer_match(self, now, timer):
         h, m = timer["hour"], timer["min"]
