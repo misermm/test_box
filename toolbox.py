@@ -1588,34 +1588,29 @@ class ToolboxApp(tk.Tk):
     ]
 
     def _build_ui(self):
-        # 可拖拽分栏：左侧菜单自适应文字宽度，右侧内容区可随分隔条调整
-        pane = ttk.Panedwindow(self, orient="horizontal")
-        pane.pack(side="left", fill="both", expand=True)
-        left = tk.Frame(pane, bg="#2c3e50", width=200)
-        pane.add(left, weight=0)
+        left = tk.Frame(self, bg="#2c3e50")
+        left.pack(side="left", fill="y")
         self._menu_frame = left
 
+        right = tk.Frame(self, bg="#f5f6fa")
+        right.pack(side="left", fill="both", expand=True)
+
         self._build_menu(left)
-        # 菜单宽度自适应：用菜单项真实字体测量，紧贴内容，避免面板过宽留白
+        # 菜单宽度自适应：测量最长菜单文字宽度，紧贴内容
         try:
             import tkinter.font as tkfont
             self.update_idletasks()
             f = tkfont.Font(family="Microsoft YaHei UI", size=10)
-            # 最宽情形：缩进菜单项 padx=6+14；组头 "▾ "+文字
             texts = ["▾ " + g for g, _ in self._MENU_GROUPS if g]
             for _, idxs in self._MENU_GROUPS:
-                texts.extend("按编码生成压缩包" for i in idxs)  # 取最长菜单名近似
+                for i in idxs:
+                    texts.append(self._page_title(i))
             longest = max(f.measure(t) for t in texts)
-            need = longest + 20  # container padx(8) + menu padx(12) + 余量
+            need = longest + 28  # container padx(2*2) + menu padx((4+12)*2) - 余量
             left.configure(width=need)
-            pane.paneconfig(left, width=need)
-            print(f"[DEBUG] menu font measure: longest={longest}, need={need}")
         except Exception:
             pass
         _boot_progress(30, "正在构建功能页面...")
-
-        right = tk.Frame(pane, bg="#f5f6fa")
-        pane.add(right, weight=1)
 
         self.title_label = tk.Label(right, bg="#f5f6fa", fg="#2c3e50",
                                     font=("Microsoft YaHei UI", 16, "bold"))
@@ -1666,7 +1661,7 @@ class ToolboxApp(tk.Tk):
         self._menu_item_labels = {}  # 页面索引 -> 菜单项 label
         canvas = tk.Canvas(parent, bg="#2c3e50", highlightthickness=0)
         canvas.configure(yscrollcommand=lambda *a: None)
-        container = tk.Frame(canvas, bg="#2c3e50", padx=4, pady=8)
+        container = tk.Frame(canvas, bg="#2c3e50", padx=2, pady=8)
         canvas.pack(side="left", fill="both", expand=True)
         _win = canvas.create_window((0, 0), window=container, anchor="nw")
         container.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
