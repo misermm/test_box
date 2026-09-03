@@ -2379,79 +2379,7 @@ class ToolboxApp(tk.Tk):
         self.wait_window(popup)
         self._timer_popup_shown = False
 
-
-class _TimerPopup(tk.Toplevel):
-    def __init__(self, parent, kind, content=None, is_shutdown=False):
-        super().__init__(parent)
-        self.kind = kind
-        self.is_shutdown = is_shutdown
-        self.title("定时提醒")
-        self.resizable(False, False)
-        self.attributes("-topmost", True)
-        self.configure(bg="#ffffff")
-        w, h = 360, 110
-        sw = self.winfo_screenwidth()
-        sh = self.winfo_screenheight()
-        self.geometry(f"{w}x{h}+{sw - w - 20}+{sh - h - 20}")
-
-        canvas = tk.Canvas(self, width=w, height=h, bg="#ffffff", highlightthickness=0)
-        canvas.pack()
-
-        if kind == "shutdown":
-            text = "准备关闭计算机，请确认"
-        else:
-            text = content or "该休息一下了"
-
-        canvas.create_text(w // 2, 30, text=text, font=("Microsoft YaHei UI", 11, "bold"),
-                            fill="#2c3e50", anchor="n")
-
-        btn_y = 70
-        bw, bh = 80, 30
-        bx = w // 2 - bw - 10
-        # 确认按钮
-        btn_confirm = tk.Button(canvas, text="确认", font=("Microsoft YaHei UI", 10, "bold"),
-                                  fg="white", bg="#1abc9c", width=8, height=1,
-                                  command=self._on_confirm, relief="flat")
-        btn_confirm.place(x=bx, y=btn_y, width=bw, height=bh)
-        # 稍后按钮
-        btn_later = tk.Button(canvas, text="稍后", font=("Microsoft YaHei UI", 10, "bold"),
-                                fg="white", bg="#95a5a6", width=8, height=1,
-                                command=self._on_later, relief="flat")
-        btn_later.place(x=bx + bw + 20, y=btn_y, width=bw, height=bh)
-
-        self.protocol("WM_DELETE_WINDOW", self._on_close)
-
-    def _on_confirm(self):
-        if self.is_shutdown:
-            self.destroy()
-            try:
-                _subprocess.run(["shutdown", "/s", "/t", "0"], check=True)
-            except Exception:
-                pass
-            return
-        self.destroy()
-
-    def _on_later(self):
-        if self.is_shutdown:
-            try:
-                _subprocess.run(["shutdown", "/a"], check=True)
-            except Exception:
-                pass
-            app = getattr(self, "master", None)
-            if app and hasattr(app, "_timer_shutdown_active"):
-                app.after(300000, lambda: app._show_timer_popup("shutdown"))
-        self.destroy()
-
-    def _on_close(self):
-        if self.is_shutdown:
-            try:
-                _subprocess.run(["shutdown", "/a"], check=True)
-            except Exception:
-                pass
-        self.destroy()
-
-
-# =============== 页面3: 文件分割 ===============
+    # =============== 页面3: 文件分割 ===============
     def _show_page_split(self):
         self.title_label.config(text="文件分割")
         self._label(self.content, "将一个文件按指定大小分割为多个 ZIP 文件。").pack(anchor="w", pady=(0, 8))
@@ -4684,6 +4612,77 @@ class _TimerPopup(tk.Toplevel):
                 tkfont.nametofont(name).configure(size=size)
             except tkfont.FontNotFound:
                 pass
+
+
+class _TimerPopup(tk.Toplevel):
+    def __init__(self, parent, kind, content=None, is_shutdown=False):
+        super().__init__(parent)
+        self.kind = kind
+        self.is_shutdown = is_shutdown
+        self.title("定时提醒")
+        self.resizable(False, False)
+        self.attributes("-topmost", True)
+        self.configure(bg="#ffffff")
+        w, h = 360, 110
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        self.geometry(f"{w}x{h}+{sw - w - 20}+{sh - h - 20}")
+
+        canvas = tk.Canvas(self, width=w, height=h, bg="#ffffff", highlightthickness=0)
+        canvas.pack()
+
+        if kind == "shutdown":
+            text = "准备关闭计算机，请确认"
+        else:
+            text = content or "该休息一下了"
+
+        canvas.create_text(w // 2, 30, text=text, font=("Microsoft YaHei UI", 11, "bold"),
+                            fill="#2c3e50", anchor="n")
+
+        btn_y = 70
+        bw, bh = 80, 30
+        bx = w // 2 - bw - 10
+        # 确认按钮
+        btn_confirm = tk.Button(canvas, text="确认", font=("Microsoft YaHei UI", 10, "bold"),
+                                  fg="white", bg="#1abc9c", width=8, height=1,
+                                  command=self._on_confirm, relief="flat")
+        btn_confirm.place(x=bx, y=btn_y, width=bw, height=bh)
+        # 稍后按钮
+        btn_later = tk.Button(canvas, text="稍后", font=("Microsoft YaHei UI", 10, "bold"),
+                                fg="white", bg="#95a5a6", width=8, height=1,
+                                command=self._on_later, relief="flat")
+        btn_later.place(x=bx + bw + 20, y=btn_y, width=bw, height=bh)
+
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _on_confirm(self):
+        if self.is_shutdown:
+            self.destroy()
+            try:
+                _subprocess.run(["shutdown", "/s", "/t", "0"], check=True)
+            except Exception:
+                pass
+            return
+        self.destroy()
+
+    def _on_later(self):
+        if self.is_shutdown:
+            try:
+                _subprocess.run(["shutdown", "/a"], check=True)
+            except Exception:
+                pass
+            app = getattr(self, "master", None)
+            if app and hasattr(app, "_timer_shutdown_active"):
+                app.after(300000, lambda: app._show_timer_popup("shutdown"))
+        self.destroy()
+
+    def _on_close(self):
+        if self.is_shutdown:
+            try:
+                _subprocess.run(["shutdown", "/a"], check=True)
+            except Exception:
+                pass
+        self.destroy()
 
 
 def _prewarm_model_worker(app):
