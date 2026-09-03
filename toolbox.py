@@ -1523,11 +1523,11 @@ class ToolboxApp(tk.Tk):
     # ---------------- UI 搭建 ----------------
     # 菜单结构：一级为分组名（可折叠），二级为功能页；独立功能（组名为 None）保持一级
     _MENU_GROUPS = [
-        ("文件处理", [0, 1, 2, 3, 15]),    # 图片转PDF/图片批量转ZIP/文件分割/文件合并/按编码生成压缩包
+        ("文件处理", [0, 1, 2, 3]),    # 图片转PDF/图片批量转ZIP/文件分割/文件合并/按编码生成压缩包
         ("数据生成", [4, 5, 6]),          # 生成指定大小文件/生成指定长度文本/随机人员信息
         ("开发工具", [8, 7, 9, 10]),      # 接口请求/URL编码解码/JSON格式化/JSON对比
         ("安全测试", [14]),               # 数据注入
-        (None, [11, 13, 12]),             # 截图识别表格/设置/关于（独立功能不分组，设置在关于上方）
+        (None, [11, 12]),             # 截图识别表格/设置/关于（独立功能不分组，设置在关于上方）
     ]
 
     def _build_ui(self):
@@ -1535,9 +1535,6 @@ class ToolboxApp(tk.Tk):
         left.pack(side="left", fill="both", expand=False)
         left.pack_propagate(False)
         self._menu_frame = left
-
-        tk.Label(left, text="功能菜单", fg="white", bg="#2c3e50",
-                 font=("Microsoft YaHei UI", 14, "bold")).pack(pady=(20, 10))
 
         self._build_menu(left)
         _boot_progress(30, "正在构建功能页面...")
@@ -4406,7 +4403,7 @@ class ToolboxApp(tk.Tk):
         self._menubar = tk.Menu(self)
         settings_menu = tk.Menu(self._menubar, tearoff=0)
         settings_menu.add_command(label="字体大小", command=self._change_font_size)
-        self._menubar.add_cascade(label="设置", menu=settings_menu)
+        self._menubar.add_cascade(label="按编码生成压缩包", command=self._show_page_zipenc)
         self.config(menu=self._menubar)
 
     def _change_font_size(self):
