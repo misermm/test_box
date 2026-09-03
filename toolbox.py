@@ -1419,6 +1419,18 @@ class ToolboxApp(tk.Tk):
         self.minsize(820, 560)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
+    def _on_close(self):
+        if self._running:
+            if not messagebox.askyesno("退出", "有任务正在运行，确定退出吗？"):
+                return
+        if self._ocr_listener:
+            try:
+                self._ocr_listener.stop()
+            except:
+                pass
+        self.destroy()
+
+    def _init_after(self):
         self._font_size_var = tk.IntVar(value=10)
         self._setup_menu_bar()
 
@@ -4671,18 +4683,6 @@ class _TimerPopup(tk.Toplevel):
                 tkfont.nametofont(name).configure(size=size)
             except tkfont.FontNotFound:
                 pass
-
-    def _on_close(self):
-        if self._running:
-            if not messagebox.askyesno("退出", "有任务正在运行，确定退出吗？"):
-                return
-        # 停止快捷键监听
-        if self._ocr_listener:
-            try:
-                self._ocr_listener.stop()
-            except:
-                pass
-        self.destroy()
 
 
 def _prewarm_model_worker(app):
