@@ -1610,7 +1610,7 @@ class ToolboxApp(tk.Tk):
         self._task_page = None
 
         # 持久化变量（切换页面时保留值）
-        DEFAULT_DATA = os.path.join(_APP_DIR, "data")
+        DEFAULT_DATA = os.path.join(_STORAGE_DIR, "data")  # 默认输出目录收拢到 exe 同目录 cache\data
         self._pdf_images = []
         self._pdf_out_var = tk.StringVar(value=DEFAULT_DATA)
         self._zip_images = []
@@ -1913,7 +1913,7 @@ class ToolboxApp(tk.Tk):
                         except Exception:
                             # 完整堆栈写入程序同级日志文件，便于离线排查
                             try:
-                                with open(os.path.join(_APP_DIR, "http_page_build_error.log"), "w", encoding="utf-8") as _ef:
+                                with open(os.path.join(_STORAGE_DIR, "http_page_build_error.log"), "w", encoding="utf-8") as _ef:
                                     _ef.write(traceback.format_exc())
                             except Exception:
                                 pass
@@ -1937,7 +1937,7 @@ class ToolboxApp(tk.Tk):
         except Exception:
             _err = traceback.format_exc()
             try:
-                with open(os.path.join(_APP_DIR, "page_build_error.log"), "a", encoding="utf-8") as _ef:
+                with open(os.path.join(_STORAGE_DIR, "page_build_error.log"), "a", encoding="utf-8") as _ef:
                     _ef.write("="*60 + "\n页面构建失败 index=" + str(index) + "\n" + _err + "\n")
             except Exception:
                 pass
@@ -2067,7 +2067,7 @@ class ToolboxApp(tk.Tk):
             title="导出日志",
             defaultextension=".txt",
             filetypes=[("文本文件", "*.txt"), ("所有文件", "*.*")],
-            initialdir=_APP_DIR,
+            initialdir=_STORAGE_DIR,
             initialfile=f"log_{self._log_owner}.txt")
         if not f:
             return
@@ -2682,10 +2682,10 @@ class ToolboxApp(tk.Tk):
                       width=5).pack(side="right", padx=2, pady=3)
 
     def _timer_log(self, msg):
-        """定时模块诊断日志：写入存储位置和程序目录各一份，便于排查提醒未触发"""
+        """定时模块诊断日志：统一写入存储位置（exe 同目录 cache），便于排查提醒未触发"""
         line = f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S} {msg}\n"
         for path in (_config_path("timer_log.txt"),
-                     os.path.join(_APP_DIR, "timer_log.txt")):
+                     ):  # 按需求统一只写存储位置（exe 同目录 cache），不再在 exe 根目录重复落一份
             try:
                 with open(path, "a", encoding="utf-8") as f:
                     f.write(line)
@@ -2751,7 +2751,7 @@ class ToolboxApp(tk.Tk):
             import traceback as _tb
             self._timer_log("检查异常: " + _tb.format_exc(limit=3).replace("\n", " | "))
             _tb.print_exc()
-        self.after(2000, self._check_timer)
+        self.after(500, self._check_timer)  # 500ms轮询：提醒延迟从最多2秒降到0.5秒内
 
     def _timer_match(self, now, timer):
         """到点即触发；若程序忙/休眠错过整分钟，2 分钟内补偿触发一次。
@@ -3325,6 +3325,7 @@ class ToolboxApp(tk.Tk):
             import openpyxl
             import subprocess
             import tempfile
+            os.makedirs(_STORAGE_DIR, exist_ok=True)  # 临时文件写入 cache 前确保目录存在
 
             wb = openpyxl.Workbook()
             ws = wb.active
@@ -3336,7 +3337,7 @@ class ToolboxApp(tk.Tk):
                     c = ws.cell(row=row, column=col, value=str(p[h]))
                     c.number_format = '@'
 
-            tmp = os.path.join(tempfile.gettempdir(), '_clip_copy.xlsx')
+            tmp = os.path.join(_STORAGE_DIR, '_clip_copy.xlsx')  # 临时文件也放入 cache，不再用系统临时目录
             wb.save(tmp)
 
             ps = (
@@ -3397,7 +3398,7 @@ class ToolboxApp(tk.Tk):
         f = filedialog.asksaveasfilename(
             title="导出Excel文件",
             defaultextension=".xlsx",
-            initialdir=os.path.join(_APP_DIR, "data"),
+            initialdir=os.path.join(_STORAGE_DIR, "data"),
             initialfile="人员信息.xlsx",
             filetypes=[("Excel文件", "*.xlsx"), ("所有文件", "*.*")]
         )
@@ -4870,7 +4871,7 @@ class ToolboxApp(tk.Tk):
                 title=f"导出{file_desc}",
                 defaultextension=default_ext,
                 filetypes=[(file_desc, pattern), ("所有文件", "*.*")],
-                initialdir=_APP_DIR,
+                initialdir=_STORAGE_DIR,
                 initialfile=f"injection_{self._security_current_type}")
             if not f:
                 return
@@ -5251,7 +5252,7 @@ def _run_selftest():
     if any(_ocr_model_dir(opt[k]) is None for k in ("det", "rec")):
         _OCR_MODEL_CHOICE = _OCR_MODEL_DEFAULT
 
-    out = os.path.join(_APP_DIR, "_selftest_result.txt")
+    out = os.path.join(_STORAGE_DIR, "_selftest_result.txt")
     with open(out, "w", encoding="utf-8") as f:
         f.write(f"selftest start: models_dir={_MODELS_DIR}\n")
         try:
