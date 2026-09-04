@@ -321,6 +321,7 @@ from generate_text import generate_text, TEXT_TYPES
 from generate_person import generate_person, generate_id_card, generate_name, generate_phone
 from url_codec import url_encode, url_decode
 from http_client import send_request, parse_headers, format_response
+import authz_test
 from json_fmt import json_format, json_compact, json_sort, json_diff_spans
 
 
@@ -1717,7 +1718,7 @@ class ToolboxApp(tk.Tk):
         ("文件处理", [0, 1, 2, 3, 15]),          # 图片转PDF/图片批量转ZIP/文件分割/文件合并/按编码生成压缩包
         ("数据生成", [4, 5, 6]),             # 生成指定大小文件/生成指定长度文本/随机人员信息
         ("开发工具", [8, 7, 9, 10]),         # 接口请求/URL编码解码/JSON格式化/JSON对比
-        ("安全测试", [14]),                  # 数据注入
+        ("安全测试", [14, 17]),              # 数据注入/越权测试
         ("常用工具", [11, 16]),              # 截图识别表格/定时工具
     ]
 
@@ -1873,7 +1874,7 @@ class ToolboxApp(tk.Tk):
     def _page_title(self, index):
         return ["图片转 PDF", "单图单PDF转ZIP", "文件分割", "文件合并",
                 "生成指定大小文件", "生成指定长度文本", "随机人员信息",
-                "URL编码解码", "接口请求", "JSON格式化", "JSON对比", "截图识别表格", "关于", "设置", "数据注入", "按编码生成压缩包", "定时工具"][index]
+                "URL编码解码", "接口请求", "JSON格式化", "JSON对比", "截图识别表格", "关于", "设置", "数据注入", "按编码生成压缩包", "定时工具", "越权测试"][index]
 
     def _select_menu(self, index):
         self._save_current_log()
@@ -1950,6 +1951,16 @@ class ToolboxApp(tk.Tk):
                         self._show_page_zipenc()
                     elif index == 16:
                         self._show_page_timer()
+                    elif index == 17:
+                        try:
+                            authz_test.build_page(self)
+                        except Exception:
+                            try:
+                                with open(os.path.join(_STORAGE_DIR, "authz_page_build_error.log"), "w", encoding="utf-8") as _ef:
+                                    _ef.write(traceback.format_exc())
+                            except Exception:
+                                pass
+                            self.after(0, lambda m="越权测试页面构建失败: " + traceback.format_exc().splitlines()[-1]: self._notify(m))
         except Exception:
             _err = traceback.format_exc()
             try:
@@ -3590,7 +3601,16 @@ class ToolboxApp(tk.Tk):
         except tk.TclError:
             pass
         style.configure("My.TNotebook", background="#e0e0e0")
-        style.configure("My.TNotebook.Tab", padding=(12, 4), background="#d0d0d0")
+        style.configure("My.TNotebook.Tab", padding=(12, 4), background="#d0d0d0",
+                        font=("Microsoft YaHei UI", 10), borderwidth=1)
+        # 显式统一选中/未选中页签的字体与内边距，
+        # 避免 clam 主题下选中页签默认加边导致文字和页签大小变化
+        style.map("My.TNotebook.Tab",
+                  padding=[("selected", (12, 4)), ("!selected", (12, 4))],
+                  font=[("selected", ("Microsoft YaHei UI", 10)),
+                        ("!selected", ("Microsoft YaHei UI", 10))],
+                  background=[("selected", "#3498db"), ("!selected", "#d0d0d0")],
+                  foreground=[("selected", "white"), ("!selected", "black")])
         style.map("My.TNotebook.Tab", background=[("selected", "#3498db"), ("!selected", "#d0d0d0")],
                   foreground=[("selected", "white"), ("!selected", "black")])
 
@@ -3916,9 +3936,15 @@ class ToolboxApp(tk.Tk):
         self._log_result_banner(True)
 
     def _http_clear(self):
-        self._http_output.delete("1.0", "end")
-        self._http_headers_output.delete("1.0", "end")
-        self._http_body_output.delete("1.0", "end")
+        cleared = 0
+        for w in (self._http_output, self._http_headers_output, self._http_body_output):
+            try:
+                w.delete("1.0", "end")
+                cleared += 1
+            except tk.TclError:
+                # 控件尚未构建或已被销毁时跳过，不让异常静默吞掉点击
+                pass
+        self._notify(f"已清空响应（{cleared}/3 个区域）")
 
     # =============== 页面10: JSON格式化 ===============
     def _show_page_json(self):
