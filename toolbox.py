@@ -1772,7 +1772,7 @@ class ToolboxApp(tk.Tk):
                                        font=("Microsoft YaHei UI", 10))
         self.log_frame.pack(fill="both", expand=True, padx=20, pady=(0, 15))
 
-        self.log = tk.Text(self.log_frame, height=14, bg="#2d3436", fg="#b2bec3",
+        self.log = tk.Text(self.log_frame, height=14, bg="#1e1e1e", fg="#d4d4d4",
                             font=("Consolas", 9), state="disabled", wrap="word")
         self.log.pack(fill="both", expand=True, padx=5, pady=5)
         self.log.tag_config("ok", foreground="#2ecc71",
@@ -2109,8 +2109,18 @@ class ToolboxApp(tk.Tk):
 
     def _notify(self, text):
         """用日志代替弹窗提示"""
+        import datetime
+        ts = datetime.datetime.now().strftime("[%H:%M:%S]")
         self.log.config(state="normal")
-        self._append_log_text(f"[提示] {text}\n")
+        self._append_log_text(f"{ts} {text}\n")
+        self.log.config(state="disabled")
+
+    def _notify_raw(self, text):
+        """无[提示]前缀的详细日志（带时间戳），用于功能页的请求级日志"""
+        import datetime
+        ts = datetime.datetime.now().strftime("[%H:%M:%S]")
+        self.log.config(state="normal")
+        self._append_log_text(f"{ts} {text}\n")
         self.log.config(state="disabled")
 
     def _log_global(self, text):
