@@ -1516,6 +1516,10 @@ class ToolboxApp(tk.Tk):
                 self._ocr_listener.stop()
             except:
                 pass
+        try:
+            self._dev_log("INFO", "程序退出")  # 退出里程碑：补齐完整日志链
+        except Exception:
+            pass
         self.destroy()
 
     def _start_tray(self):
@@ -1637,6 +1641,7 @@ class ToolboxApp(tk.Tk):
         self._dev_log_records = []          # [(时间, 级别, 内容)]
         self._dev_log_level = "INFO"
         self._DEV_LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
+        self._dev_log("INFO", "程序启动")  # 启动里程碑：关于页日志从此记录启动→结束全程
 
         # 随机人员信息相关变量
         self._person_data = []
@@ -1961,7 +1966,7 @@ class ToolboxApp(tk.Tk):
         try:
             import datetime
             ts = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
-            self._dev_log_records.append((ts, level, msg.replace("\r", "")))
+            self._dev_log_records = getattr(self, "_dev_log_records", []); self._dev_log_records.append((ts, level, msg.replace("\r", "")))  # 兜底初始化：启动最早期日志也不丢
             if len(self._dev_log_records) > 5000:
                 del self._dev_log_records[:1000]
         except Exception:
@@ -2089,6 +2094,7 @@ class ToolboxApp(tk.Tk):
         idx = getattr(self, "ABOUT_PAGE_INDEX", 12)
         stored = self._page_logs.get(idx, "")
         self._page_logs[idx] = stored + text.replace("\r", "\n")
+        self._dev_log("INFO", text)  # 全局日志同步进关于页后台日志，保证启动→结束全程可见
         # 若当前正显示关于页且其日志控件已构建，同步显示
         if self._log_owner == idx and hasattr(self, "log"):
             self.log.config(state="normal")
@@ -2400,8 +2406,11 @@ class ToolboxApp(tk.Tk):
                                          encoding=encoding, fmt=fmt)
             names = verify_archive_names(out, encoding=encoding, fmt=fmt)
             preview = "、".join(n for _, n in names[:3])
-            self._notify("已生成: %s（按 %s 编码，回读文件名: %s%s。注: 文件名中含 ? 表示该字符无法用此编码表示，已被替换写入）" % (
-                out, encoding, preview, " ..." if len(names) > 3 else ""))
+            # 仅当回读文件名中真的出现 ?（存在该编码无法表示而被替换的字符）才附加提示，正常情况不误导
+            note = "。注: 文件名中含 ? 表示该字符无法用此编码表示，已被替换写入" if any("?" in n for _, n in names) else ""
+            suffix = (" ..." if len(names) > 3 else "") + note
+            self._notify("已生成: %s（按 %s 编码，回读文件名: %s%s）" % (
+                out, encoding, preview, suffix))
         except Exception as e:
             self._notify("生成失败: %s" % e)
 
@@ -4988,7 +4997,9 @@ class ToolboxApp(tk.Tk):
             "  9. 接口请求 - 发送GET/POST请求查看响应\n"
             "  10. JSON格式化 - JSON美化/压缩为字符串\n"
             "  11. JSON对比 - 排序后逐字符对比，标注差异\n"
-            "  12. 截图识别表格 - 截图识别表格并导出到Excel\n\n"
+            "  12. 截图识别表格 - 截图识别表格并导出到Excel\n"
+            "  13. 按编码生成压缩包 - 生成ZIP编码压缩包\n"
+            "  14. 定时工具 - 定时提醒和关机功能\n\n"
             "使用方法:\n"
             "  左侧选择功能，右侧填写参数后点击开始按钮。\n"
         )
@@ -5052,10 +5063,10 @@ class ToolboxApp(tk.Tk):
         self._menubar = tk.Menu(self)
         settings_menu = tk.Menu(self._menubar, tearoff=0)
         settings_menu.add_command(label="设置页", command=lambda: self._select_menu(13))
-        self._menubar.add_cascade(label="设置", menu=settings_menu)
+        self._menubar.add_command(label="设置", command=lambda: self._select_menu(13))  # 点击直达设置页，不弹下拉
         about_menu = tk.Menu(self._menubar, tearoff=0)
         about_menu.add_command(label="关于", command=lambda: self._select_menu(12))
-        self._menubar.add_cascade(label="关于", menu=about_menu)
+        self._menubar.add_command(label="关于", command=lambda: self._select_menu(12))  # 点击直达关于页，不弹下拉
         self.config(menu=self._menubar)
 
     def _change_font_size(self):
