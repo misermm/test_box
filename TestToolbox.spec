@@ -14,6 +14,8 @@ hiddenimports = [
     'url_codec',
     'http_client',
     'json_fmt',
+    'pystray',
+    'pystray._util.win32',
 ]
 tmp_ret = collect_all('PIL')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]

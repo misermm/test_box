@@ -1445,7 +1445,7 @@ class ToolboxApp(tk.Tk):
         # 导致所有功能页按钮消失。这里立刻把默认根指回主窗口。
         tk._default_root = self
         self.title(f"{APP_NAME} v{APP_VERSION}")
-        self.geometry("1600x960")
+        self.geometry("720x720")
         self.minsize(820, 560)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         # 强制显示到最前，避免被主窗口遮挡或未映射
@@ -1456,14 +1456,143 @@ class ToolboxApp(tk.Tk):
 
     def _on_close(self):
         if self._running:
+            if False:  # 运行中确认已迁移到 _do_quit（"退出程序"按钮路径同样受保护）
+                return
+        self._show_close_dialog()
+
+    def _show_close_dialog(self):
+        # 点 X 弹出选择：后台运行（隐藏到任务栏托盘，进程保留、定时任务继续）或退出程序
+        dlg = tk.Toplevel(self)
+        dlg.title("退出或后台运行")
+        dlg.resizable(False, False)
+        dlg.transient(self)
+        try:
+            dlg.grab_set()
+        except Exception:
+            pass
+        ttk.Label(dlg, text="选择窗口操作：").pack(padx=24, pady=(16, 8))
+        btn_bar = ttk.Frame(dlg)
+        btn_bar.pack(padx=24, pady=(0, 16))
+
+        def _close_dlg():
+            try:
+                dlg.grab_release()
+            except Exception:
+                pass
+            dlg.destroy()
+
+        def _go_tray():
+            _close_dlg()
+            self.withdraw()
+            self._start_tray()
+
+        ttk.Button(btn_bar, text="后台运行", command=_go_tray).pack(side="left", padx=6)
+        ttk.Button(btn_bar, text="退出程序", command=lambda: (_close_dlg(), self._do_quit())).pack(side="left", padx=6)
+        dlg.protocol("WM_DELETE_WINDOW", _close_dlg)
+        # 居中显示在主窗口上
+        dlg.update_idletasks()
+        try:
+            w, h = dlg.winfo_width(), dlg.winfo_height()
+            dlg.geometry(f"+{self.winfo_rootx() + max(0, (self.winfo_width() - w) // 2)}"
+                         f"+{self.winfo_rooty() + max(0, (self.winfo_height() - h) // 2)}")
+        except Exception:
+            pass
+
+    def _do_quit(self):
+        # 真正退出：停托盘、停截图监听、销毁主窗口（保持原退出清理逻辑）
+        # 保留原"任务运行中需确认"保护（原 _on_close 逻辑迁移至此，托盘退出同样生效）
+        if getattr(self, "_running", False):
             if not messagebox.askyesno("退出", "有任务正在运行，确定退出吗？"):
                 return
+        icon = getattr(self, "_tray_icon", None)
+        if icon:
+            try:
+                icon.stop()
+            except Exception:
+                pass
+            self._tray_icon = None
         if self._ocr_listener:
             try:
                 self._ocr_listener.stop()
             except:
                 pass
         self.destroy()
+
+    def _start_tray(self):
+        # 后台运行：任务栏右下角托盘图标。进程保留，定时提醒/定时关机继续工作
+        if getattr(self, "_tray_icon", None):
+            return
+        try:
+            import pystray
+            from PIL import Image as _PILImage
+
+            image = None
+            # 打包(exe)与源码两种运行方式下都尝试加载项目 icon.ico
+            candidates = []
+            base = getattr(sys, "_MEIPASS", None)
+            if base:
+                candidates.append(os.path.join(base, "icon.ico"))
+            candidates.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.ico"))
+            candidates.append("icon.ico")
+            for cand in candidates:
+                if cand and os.path.exists(cand):
+                    try:
+                        image = _PILImage.open(cand)
+                        break
+                    except Exception:
+                        image = None
+            if image is None:
+                image = _PILImage.new("RGB", (64, 64), (40, 110, 200))
+
+            name = APP_NAME if APP_NAME else "Toolbox"
+            menu = pystray.Menu(
+                pystray.MenuItem("显示主窗口", self._tray_show, default=True),
+                pystray.MenuItem("退出程序", self._tray_quit),
+            )
+            self._tray_icon = pystray.Icon(name, image, name, menu)
+            threading.Thread(target=self._tray_icon.run, daemon=True).start()
+        except Exception as e:
+            self._tray_icon = None
+            # 托盘不可用则恢复窗口，避免窗口隐藏且无图标导致"程序消失"
+            try:
+                self.deiconify()
+            except Exception:
+                pass
+            try:
+                self._notify("托盘不可用，已恢复窗口：" + str(e)[:80])
+            except Exception:
+                pass
+
+    def _tray_show(self, icon=None, item=None):
+        # 托盘回调运行在托盘线程，必须切回 tkinter 主线程
+        def _do():
+            ic = getattr(self, "_tray_icon", None)
+            if ic:
+                try:
+                    ic.stop()
+                except Exception:
+                    pass
+                self._tray_icon = None
+            self.deiconify()
+            self.lift()
+            self.focus_force()
+        try:
+            self.after(0, _do)
+        except Exception:
+            pass
+
+    def _tray_quit(self, icon=None, item=None):
+        ic = getattr(self, "_tray_icon", None)
+        if ic:
+            try:
+                ic.stop()
+            except Exception:
+                pass
+            self._tray_icon = None
+        try:
+            self.after(0, self._do_quit)
+        except Exception:
+            pass
 
     def _init_after(self):
         self._font_size_var = tk.IntVar(value=10)
@@ -2701,7 +2830,7 @@ class ToolboxApp(tk.Tk):
         elif reminder:
             content = reminder.get("content", "该休息一下了")
         try:
-            popup = _TimerPopup(self, kind, content=content, is_shutdown=is_shutdown)
+            popup = _TimerPopup(self, kind, content=content, is_shutdown=is_shutdown, reminder=reminder)
             popup.grab_set()
             self.wait_window(popup)
         except Exception:
@@ -4955,10 +5084,11 @@ class ToolboxApp(tk.Tk):
 
 
 class _TimerPopup(tk.Toplevel):
-    def __init__(self, parent, kind, content=None, is_shutdown=False):
+    def __init__(self, parent, kind, content=None, is_shutdown=False, reminder=None):
         super().__init__(parent)
         self.kind = kind
         self.is_shutdown = is_shutdown
+        self._reminder = reminder  # 提醒对象引用，供"稍后5分钟提醒"重弹使用
         self.title("定时提醒")
         self.resizable(False, False)
         self.attributes("-topmost", True)
@@ -5020,17 +5150,17 @@ class _TimerPopup(tk.Toplevel):
 
         btn_y = 70
         bw, bh = 80, 30
-        bx = w // 2 - bw - 10
+        bx = (w - bw - 20 - 110) // 2  # 两个按钮(80+20+110)整体居中；右侧按钮加宽至110避免"5分钟后提醒"文字截断
         # 确认按钮
         btn_confirm = tk.Button(canvas, text="确认", font=("Microsoft YaHei UI", 10, "bold"),
                                   fg="white", bg="#1abc9c", width=8, height=1,
                                   command=self._on_confirm, relief="flat")
         btn_confirm.place(x=bx, y=btn_y, width=bw, height=bh)
         # 稍后按钮
-        btn_later = tk.Button(canvas, text="稍后", font=("Microsoft YaHei UI", 10, "bold"),
-                                fg="white", bg="#95a5a6", width=8, height=1,
+        btn_later = tk.Button(canvas, text="5分钟后提醒", font=("Microsoft YaHei UI", 10, "bold"),
+                                fg="white", bg="#95a5a6", activebackground="#7f8c8d", activeforeground="white",
                                 command=self._on_later, relief="flat")
-        btn_later.place(x=bx + bw + 20, y=btn_y, width=bw, height=bh)
+        btn_later.place(x=bx + bw + 20, y=btn_y, width=110, height=bh)
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -5045,6 +5175,24 @@ class _TimerPopup(tk.Toplevel):
         self.destroy()
 
     def _on_later(self):
+        # 统一语义：稍后 = 5 分钟后再次提醒（默认 300000ms）
+        if self.is_shutdown:
+            try:
+                _subprocess.run(["shutdown", "/a"], check=True)
+            except Exception:
+                pass
+            app = getattr(self, "master", None)
+            if app and hasattr(app, "_shutdown_timer"):
+                app.after(300000, lambda: app._show_timer_popup("shutdown"))
+        else:
+            # 提醒类弹窗：5 分钟后重新弹出（不经过 _check_timer，直接重弹）
+            app = getattr(self, "master", None)
+            reminder = getattr(self, "_reminder", None)
+            if app and hasattr(app, "_show_timer_popup") and reminder:
+                app.after(300000, lambda r=reminder: app._show_timer_popup("reminder", r))
+        self.destroy()
+
+    def _on_later_legacy(self):
         if self.is_shutdown:
             try:
                 _subprocess.run(["shutdown", "/a"], check=True)

@@ -787,3 +787,55 @@
 2026-09-03 22:45:00 弹窗定位回退固定偏移: NameError("name 'ctypes' is not defined")
 2026-09-03 22:45:05 保存提醒: 存储位置=C:\Users\Joker\AppData\Local\Temp\cfg_test_0okj8v_e\new_root 内容={"shutdown": null, "reminders": [{"id": 1, "hour": 22, "min": 45, "freq": "仅一次", "day": null, "content": "该休息一下了", "active": false}]}
 2026-09-03 22:45:07 检查: now=22:45 提醒数=1
+2026-09-04 10:41:19 加载提醒: 存储位置=C:\work\ai\picture_to_pdf\cache 内容=None
+2026-09-04 10:41:24 检查: now=10:41 提醒数=0
+2026-09-04 10:48:32 加载提醒: 存储位置=C:\work\ai\picture_to_pdf\cache 内容=None
+2026-09-04 10:48:37 检查: now=10:48 提醒数=0
+2026-09-04 10:51:01 加载提醒: 存储位置=C:\work\ai\picture_to_pdf\cache 内容=None
+2026-09-04 10:51:06 检查: now=10:51 提醒数=0
+2026-09-04 10:51:27 加载提醒: 存储位置=C:\work\ai\picture_to_pdf\cache 内容=None
+2026-09-04 12:22:31 加载提醒: 存储位置=C:\work\ai\picture_to_pdf\cache 内容=None
+2026-09-04 12:22:35 加载提醒: 存储位置=C:\work\ai\picture_to_pdf\cache 内容=None
+2026-09-04 12:22:36 检查: now=12:22 提醒数=0
+2026-09-04 12:23:04 加载提醒: 存储位置=C:\work\ai\picture_to_pdf\cache 内容=None
+2026-09-04 12:23:09 检查: now=12:23 提醒数=0
+2026-09-04 12:23:16 加载提醒: 存储位置=C:\work\ai\picture_to_pdf\cache 内容=None
+2026-09-04 12:23:24 保存提醒: 存储位置=C:\work\ai\picture_to_pdf\cache 内容={"shutdown": null, "reminders": [{"id": 1, "hour": 12, "min": 24, "freq": "每天", "day": null, "content": "该休息一下了", "active": true}]}
+2026-09-04 12:24:01 检查: now=12:24 提醒数=1
+2026-09-04 12:24:01 保存提醒: 存储位置=C:\work\ai\picture_to_pdf\cache 内容={"shutdown": null, "reminders": [{"id": 1, "hour": 12, "min": 24, "freq": "每天", "day": null, "content": "该休息一下了", "active": true}]}
+2026-09-04 12:24:01 触发提醒: id=1 内容='该休息一下了'
+2026-09-04 12:24:01 弹窗定位回退固定偏移: NameError("name 'ctypes' is not defined")
+2026-09-04 12:25:00 检查: now=12:25 提醒数=1
+2026-09-04 12:25:00 保存提醒: 存储位置=C:\work\ai\picture_to_pdf\cache 内容={"shutdown": null, "reminders": [{"id": 1, "hour": 12, "min": 24, "freq": "每天", "day": null, "content": "该休息一下了", "active": true}]}
+2026-09-04 12:25:00 触发提醒: id=1 内容='该休息一下了'
+2026-09-04 12:25:00 弹窗定位回退固定偏移: NameError("name 'ctypes' is not defined")
+2026-09-04 13:27:11 加载提醒: 存储位置=C:\work\ai\picture_to_pdf\cache 内容='{"shutdown": null, "reminders": [{"id": 1, "hour": 12, "min": 24, "freq": "每天", "day": null, "content": "该休息一下了", "active": true}]}'
+2026-09-04 13:27:14 加载提醒: 存储位置=C:\work\ai\picture_to_pdf\cache 内容='{"shutdown": null, "reminders": [{"id": 1, "hour": 12, "min": 24, "freq": "每天", "day": null, "content": "该休息一下了", "active": true}]}'
+2026-09-04 13:27:16 保存提醒: 存储位置=C:\work\ai\picture_to_pdf\cache 内容={"shutdown": null, "reminders": []}
+2026-09-04 13:27:16 检查: now=13:27 提醒数=0
+2026-09-04 13:27:20 保存提醒: 存储位置=C:\work\ai\picture_to_pdf\cache 内容={"shutdown": null, "reminders": [{"id": 1, "hour": 13, "min": 28, "freq": "仅一次", "day": null, "content": "该休息一下了", "active": true}]}
+2026-09-04 13:28:00 检查: now=13:28 提醒数=1
+2026-09-04 13:28:00 保存提醒: 存储位置=C:\work\ai\picture_to_pdf\cache 内容={"shutdown": null, "reminders": [{"id": 1, "hour": 13, "min": 28, "freq": "仅一次", "day": null, "content": "该休息一下了", "active": true}]}
+2026-09-04 13:28:00 触发提醒: id=1 内容='该休息一下了'
+2026-09-04 13:28:00 弹窗定位回退固定偏移: NameError("name 'ctypes' is not defined")
+2026-09-04 13:28:06 保存提醒: 存储位置=C:\work\ai\picture_to_pdf\cache 内容={"shutdown": null, "reminders": [{"id": 1, "hour": 13, "min": 28, "freq": "仅一次", "day": null, "content": "该休息一下了", "active": false}]}
+2026-09-04 13:29:00 检查: now=13:29 提醒数=1
+2026-09-04 13:30:01 检查: now=13:30 提醒数=1
+2026-09-04 13:31:01 检查: now=13:31 提醒数=1
+2026-09-04 13:32:01 检查: now=13:32 提醒数=1
+2026-09-04 13:33:01 检查: now=13:33 提醒数=1
+2026-09-04 13:33:06 弹窗定位回退固定偏移: NameError("name 'ctypes' is not defined")
+2026-09-04 13:33:09 保存提醒: 存储位置=C:\work\ai\picture_to_pdf\cache 内容={"shutdown": null, "reminders": [{"id": 1, "hour": 13, "min": 28, "freq": "仅一次", "day": null, "content": "该休息一下了", "active": false}]}
+2026-09-04 13:40:53 加载提醒: 存储位置=C:\work\ai\picture_to_pdf\cache 内容='{"shutdown": null, "reminders": [{"id": 1, "hour": 13, "min": 28, "freq": "仅一次", "day": null, "content": "该休息一下了", "active": false}]}'
+2026-09-04 13:40:55 加载提醒: 存储位置=C:\work\ai\picture_to_pdf\cache 内容='{"shutdown": null, "reminders": [{"id": 1, "hour": 13, "min": 28, "freq": "仅一次", "day": null, "content": "该休息一下了", "active": false}]}'
+2026-09-04 13:40:56 保存提醒: 存储位置=C:\work\ai\picture_to_pdf\cache 内容={"shutdown": null, "reminders": []}
+2026-09-04 13:40:58 检查: now=13:40 提醒数=0
+2026-09-04 13:41:00 保存提醒: 存储位置=C:\work\ai\picture_to_pdf\cache 内容={"shutdown": null, "reminders": [{"id": 1, "hour": 13, "min": 41, "freq": "仅一次", "day": null, "content": "该休息一下了", "active": true}]}
+2026-09-04 13:41:00 检查: now=13:41 提醒数=1
+2026-09-04 13:41:00 保存提醒: 存储位置=C:\work\ai\picture_to_pdf\cache 内容={"shutdown": null, "reminders": [{"id": 1, "hour": 13, "min": 41, "freq": "仅一次", "day": null, "content": "该休息一下了", "active": true}]}
+2026-09-04 13:41:00 触发提醒: id=1 内容='该休息一下了'
+2026-09-04 13:41:00 弹窗定位回退固定偏移: NameError("name 'ctypes' is not defined")
+2026-09-04 13:41:07 保存提醒: 存储位置=C:\work\ai\picture_to_pdf\cache 内容={"shutdown": null, "reminders": [{"id": 1, "hour": 13, "min": 41, "freq": "仅一次", "day": null, "content": "该休息一下了", "active": false}]}
+2026-09-04 13:41:26 保存提醒: 存储位置=C:\work\ai\picture_to_pdf\cache 内容={"shutdown": null, "reminders": [{"id": 1, "hour": 13, "min": 41, "freq": "仅一次", "day": null, "content": "该休息一下了", "active": true}]}
+2026-09-04 13:41:26 保存提醒: 存储位置=C:\work\ai\picture_to_pdf\cache 内容={"shutdown": null, "reminders": [{"id": 1, "hour": 13, "min": 41, "freq": "仅一次", "day": null, "content": "该休息一下了", "active": false}]}
+2026-09-04 13:41:28 保存提醒: 存储位置=C:\work\ai\picture_to_pdf\cache 内容={"shutdown": null, "reminders": []}
