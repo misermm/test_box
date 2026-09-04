@@ -95,6 +95,9 @@
 
 > **修复状态（2026-09-04 修复轮）**：BUG-08、BUG-09、BUG-10、BUG-15、BUG-18 已修复 ✅（最小侵入，不改行为）；BUG-16 经评估保留原正则（完整引号分支替换需回归验证，仅加注释说明边缘场景，避免引入回归）；BUG-11、BUG-12、BUG-13、BUG-14、BUG-17 待用户确认预期后再定；BUG-19 暂保留现有 hack（注释级建议）。4 个改动文件已通过 py_compile 编译验证。
 
+## 新增修复（2026-09-04）
+- **build.bat 模型路径修复** ✅：第20行检查的路径从 `SLANet_plus_infer` 改为 `SLANet_plus`，与 `download_models.py` 和 `build.ps1` 保持一致
+
 > 探索范围：`toolbox.py`、`http_client.py`、`image_to_pdf.py`、`file_splitter.py`、`generate_file.py`、`generate_person.py`、`generate_text.py`、`json_fmt.py`、`url_codec.py`、`zip_encoder.py`（静态走查；沙箱无显示环境，未实际运行 GUI）
 > 修复原则：不做质量降低/破坏性修复，全部为最小侵入式方案，不影响原功能；确认后再动手。
 

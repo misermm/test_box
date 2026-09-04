@@ -4,17 +4,43 @@ echo ========================================
 echo   Build Test Toolbox (onedir, instant start)
 echo ========================================
 echo.
-.venv\Scripts\python.exe -m PyInstaller ^
-  --onedir --noconsole --noconfirm ^
-  --name "TestToolbox" ^
-  --distpath dist_onedir --workpath build --specpath . ^
-  --icon icon.ico --version-file version.txt ^
-  --collect-all PIL --collect-all cv2 ^
-  --collect-all paddle --collect-all pyclipper ^
-  --collect-all shapely --collect-all paddlex ^
-  --add-data ".venv\Lib\site-packages\paddle\libs;paddle\libs" ^
-  --add-data "models;models" ^
-  toolbox.py
+
+echo [1/3] Checking models...
+if not exist models (
+    echo   models/ not found, downloading...
+    mkdir models
+    .venv\Scripts\python.exe download_models.py
+    if errorlevel 1 (
+        echo Model download failed!
+        pause
+        exit /b 1
+    )
+) else (
+    if not exist models\official_models\SLANet_plus\inference.yml (
+        echo   models incomplete, downloading...
+        .venv\Scripts\python.exe download_models.py
+        if errorlevel 1 (
+            echo Model download failed!
+            pause
+            exit /b 1
+        )
+    ) else (
+        echo   models OK
+    )
+)
+
+echo [2/3] Stopping running TestToolbox.exe if any...
+taskkill /F /IM TestToolbox.exe >nul 2>&1
+timeout /t 2 /nobreak >nul
+taskkill /F /IM TestToolbox.exe >nul 2>&1
+timeout /t 2 /nobreak >nul
+
+echo [3/3] Building onedir (spec file + incremental cache)...
+if exist build\TestToolbox\TestToolbox.pkg if not exist build\TestToolbox\PYZ-00.pyz (
+    echo   Stale incremental cache detected, cleaning build/...
+    rmdir /s /q build
+)
+.venv\Scripts\python.exe -m PyInstaller TestToolbox.spec --noconfirm --distpath dist_onedir
 if errorlevel 1 (
     echo Build failed!
     pause

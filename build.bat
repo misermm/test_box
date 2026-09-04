@@ -17,7 +17,7 @@ if not exist models (
         exit /b 1
     )
 ) else (
-    if not exist models\official_models\SLANet_plus_infer\inference.yml (
+    if not exist models\official_models\SLANet_plus\inference.yml (
         echo   models incomplete, downloading...
         .venv\Scripts\python.exe download_models.py
         if errorlevel 1 (

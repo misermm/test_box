@@ -1445,7 +1445,7 @@ class ToolboxApp(tk.Tk):
         # 导致所有功能页按钮消失。这里立刻把默认根指回主窗口。
         tk._default_root = self
         self.title(f"{APP_NAME} v{APP_VERSION}")
-        self.geometry("720x720")
+        self.geometry("900x780")
         self.minsize(820, 560)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         # 强制显示到最前，避免被主窗口遮挡或未映射
@@ -1887,15 +1887,26 @@ class ToolboxApp(tk.Tk):
         self.title_label.config(text=self._page_title(index))
 
         frame = self._page_frames.get(index)
-        if True:  # fix: 每次进入都重建页面，避免构建失败后缓存半成品导致重复控件堆叠
-            frame = tk.Frame(self.page_container, bg="#f5f6fa")
-            self._page_frames[index] = frame
-            self.content = frame
-            # 修复：页面构建中途失败后重进会重复堆叠控件（如生成页重复的输出路径行），每次进入前先清空旧内容
-            for _w in list(frame.winfo_children()):
-                _w.destroy()
+        # 状态保留：页面只在首次进入时构建一次，切换菜单后回来直接复用，
+        # 保留用户输入、请求结果等全部状态（除非手动清空）
+        need_build = frame is None or not frame.winfo_children()
+        if need_build:
+                frame = tk.Frame(self.page_container, bg="#f5f6fa")
+                self._page_frames[index] = frame
+                self.content = frame
+                # 修复：页面构建中途失败后重进会重复堆叠控件（如生成页重复的输出路径行），每次进入前先清空旧内容
+                for _w in list(frame.winfo_children()):
+                    _w.destroy()
         try:
-                    if index == 0:
+                    if not need_build:
+                        # 复用已构建页面：不重建控件，保留状态与数据
+                        self.content = frame
+                        if index == 12:
+                            try:
+                                self._refresh_dev_log()
+                            except Exception:
+                                pass
+                    elif index == 0:
                         self._show_page_pdf()
                     elif index == 1:
                         self._show_page_zip()
@@ -2013,7 +2024,9 @@ class ToolboxApp(tk.Tk):
 
     def _append_log_text(self, text):
         # 后台日志同步记录（所有界面日志的汇合点，供关于页查看）
-        level = "DEBUG" if text and not text.endswith("\n") else "INFO"
+        # 级别判定：仅显式错误标记记 ERROR，其余（含功能动作提示）一律 INFO，
+        # 修复旧版按"是否以换行结尾"误判 DEBUG 导致动作日志被默认级别过滤的问题
+        level = "ERROR" if text and ("失败" in text or "错误" in text or "异常" in text) else "INFO"
         self._dev_log(level, text)
         """追加任务日志：当前显示的就是任务所属页面时写控件，否则写入该页存储"""
         if self._task_page is None or self._log_owner == self._task_page:
@@ -5015,18 +5028,22 @@ class ToolboxApp(tk.Tk):
         def _refresh_dev_log(_e=None):
             self._dev_log_level = self._dev_log_level_var.get()
             order = {lv: i for i, lv in enumerate(self._DEV_LOG_LEVELS)}
-            min_idx = order.get(self._dev_log_level, 1)
+            # "全部"显示所有级别；否则显示该级别及以上的所有日志
+            if self._dev_log_level == "全部":
+                min_idx = -1
+            else:
+                min_idx = order.get(self._dev_log_level, 1)
             self._dev_log_text.config(state="normal")
             self._dev_log_text.delete("1.0", "end")
             for ts, lv, msg in self._dev_log_records:
-                if order.get(lv, 1) >= min_idx:
+                if self._dev_log_level == "全部" or order.get(lv, 1) >= min_idx:
                     self._dev_log_text.insert("end", f"[{ts}] [{lv}] {msg}\n")
             self._dev_log_text.see("end")
             self._dev_log_text.config(state="disabled")
 
-        self._dev_log_level_var = tk.StringVar(value=self._dev_log_level)
+        self._dev_log_level_var = tk.StringVar(value=getattr(self, "_dev_log_level", "全部") or "全部")
         self._dev_log_level_combo = ttk.Combobox(bar, textvariable=self._dev_log_level_var, state="readonly",
-                     values=self._DEV_LOG_LEVELS, width=8)
+                     values=["全部"] + self._DEV_LOG_LEVELS, width=8)
         self._dev_log_level_combo.pack(side="left", padx=(4, 10))
         self._dev_log_level_combo.bind("<<ComboboxSelected>>", _refresh_dev_log)
 
