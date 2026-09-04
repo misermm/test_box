@@ -88,3 +88,75 @@
 | BUG-02 | 代码清理 | 顺手修 |
 
 请确认要修复哪些编号，我再动手。
+
+---
+
+# Bug 清单（第二轮探索 2026-09-04，仅列清单与修复方案，未做任何修改 ✅）
+
+> **修复状态（2026-09-04 修复轮）**：BUG-08、BUG-09、BUG-10、BUG-15、BUG-18 已修复 ✅（最小侵入，不改行为）；BUG-16 经评估保留原正则（完整引号分支替换需回归验证，仅加注释说明边缘场景，避免引入回归）；BUG-11、BUG-12、BUG-13、BUG-14、BUG-17 待用户确认预期后再定；BUG-19 暂保留现有 hack（注释级建议）。4 个改动文件已通过 py_compile 编译验证。
+
+> 探索范围：`toolbox.py`、`http_client.py`、`image_to_pdf.py`、`file_splitter.py`、`generate_file.py`、`generate_person.py`、`generate_text.py`、`json_fmt.py`、`url_codec.py`、`zip_encoder.py`（静态走查；沙箱无显示环境，未实际运行 GUI）
+> 修复原则：不做质量降低/破坏性修复，全部为最小侵入式方案，不影响原功能；确认后再动手。
+
+## BUG-08 文件合并 `merge_zip_files` 将全部数据一次性载入内存
+- 位置：`file_splitter.py` `merge_zip_files()`（约 127–161 行）
+- 问题：`all_data[part_num] = zipf.read(name)` 把所有分片全部读入内存，最后 `merged_data += ...` 又完整复制一份；合并 GB 级文件时内存占用为文件体积的 2 倍以上，可能 OOM/卡死。
+- 修复方案（非破坏性）：改为流式合并——按 part_num 排序后逐个 `zipf.open(name)` 并以 1MB 块写入输出文件；原返回值/日志行为不变。
+
+## BUG-09 定时器日志无节流，`_check_timer` 每 2 秒写一条日志
+- 位置：`toolbox.py` `_check_timer()`（约 2598 行）：每次轮询都 `self._timer_log(f"检查: now=...")`，`timer_log.txt` 已 76KB 且随运行时间无限增长；弹窗未弹时靠该日志排查，但日常运行膨胀明显。
+- 修复方案：仅在"分钟值变化"或有提醒/关机任务激活时记录检查日志；或把"检查"类日志降为 DEBUG 级别并给 timer_log 加轮转上限（如 2MB 截断保留后半）。行为（弹窗触发）完全不变。
+
+## BUG-10 `_timer_match` 的"错过补偿"在跨小时/跨天场景会误触发或漏触发（低概率）
+- 位置：`toolbox.py` `_timer_match()`（约 2624 行）
+- 问题：补偿窗口用 `now.replace(hour=h, minute=m)` 计算目标时刻，若系统休眠跨过"次日凌晨 0 点后补前一天"或目标时刻在 23:5x 且 now 已跨天，`delta` 计算基于"今天的 h:m"，会得到负 delta → 漏触发；反之"仅一次"提醒跨天后 delta 又恰好落 0~120 秒内时，用的是新一天的日期 key，`_last_fired` 去重失效可能重复弹。
+- 修复方案：补偿判断改为"目标时刻 = 与 now 最接近的过去一次 h:m（含昨天）"，即 `delta = (now - target)` 若为负则 target 减一天再算；`_last_fired` 去重 key 加入目标日期。逻辑替换为等价更严格版本，不影响正常到点触发。
+
+## BUG-11 `corrupt_file` 的 `header_tail`/`tail_only` 在文件较小（<8KB）时首尾覆盖重叠（低危）
+- 位置：`generate_file.py` `corrupt_file()`（约 66–88 行）：`region = min(4096, total // 2)`，total<8KB 时 head 和 tail 覆盖区间相接甚至重叠，仅提示语不准，功能仍是"损坏"。属行为瑕疵非错误。
+- 修复方案：total <= 2*region 时提示"文件过小，头尾覆盖已合并"；或 head 写完后先 `f.seek(total - region)`（当前 header_tail 分支第二段已有 seek，无实际错位，仅文档/提示完善）。可保持现状仅改提示。
+
+## BUG-12 `generate_file.create_image_file` 对大尺寸目标的估算偏差（低危）
+- 位置：`generate_file.py` 约 186 行：`approx_pixels = target_size * 0.9 / 3` 后直接 `f.write(header)` 再补随机数据到目标大小——实际产物是"有效图片头 + 尾部随机垃圾"，大多数查看器能打开但 PIL 完整解码可能报错，且 PNG/JPG 尾部数据并非图像内容。
+- 修复方案：如果"可用图片查看器正常打开"是硬需求，改为生成多帧/放大真实像素直到达到目标体积（重写编码循环）；若当前"能打开即可"是预期，可不动。需用户确认预期后选择。
+
+## BUG-13 `zip_encoder.verify_archive_names` 对 zip 的 cp437 解码假设不完整
+- 位置：`zip_encoder.py` `verify_archive_names()`（约 39 行）：只有当 zip 内文件名被以 UTF-8 flag=0（cp437 存储）写入时 `filename.encode('cp437').decode(encoding)` 才成立；若原 zip 已带 UTF-8 flag 或名字含非 cp437 可编码字符，`encode('cp437')` 抛异常走 fallback 返回原名——行为尚可，但 `_encode_name` 侧（`encode(encoding).decode('utf-8')`）生成的文件名在某些解压器中会乱码（Windows 资源管理器按 cp437/系统 ANSI 解）。
+- 修复方案：写入时给 `zf.write(..., arcname=...)` 前将 arcname 以 latin-1/cp437 可逆方式编码（Python zipfile 若 arcname 非 ASCII 会自动置 UTF-8 flag，需改用 `ZipInfo` 手工设 flag_bits 去 UTF-8 标志）；或界面上注明"GBK 压缩包请用 WinRAR/Bandizip 等按 ANSI 解码"。方案一为真修，需回归验证 GBK 解压。
+
+## BUG-14 `url_codec.url_decode` 对 `+` 不做空格还原（待确认是否有意）
+- 位置：`url_codec.py` 15–19 行：`unquote(text, errors="strict")` 保留 `+` 为字面加号。标准 query-string 解码中 `+` 代表空格；若界面用于解码表单/查询串，结果与用户预期不符。
+- 修复方案：新增可选参数 `plus_as_space=False` 保持默认行为不变，界面加"将 + 视为空格"勾选项（默认不勾，兼容原功能）。属增强非必改。
+
+## BUG-15 `http_client.send_request` 未处理 gzip/deflate 响应解压
+- 位置：`http_client.py` 约 60–84 行：请求不带 `Accept-Encoding`，但若服务端/代理仍返回 gzip（如用户手动在头里加了 `Accept-Encoding: gzip`），`raw.decode` 会输出乱码。
+- 修复方案：当响应头 `Content-Encoding` 为 gzip/deflate 时用 `gzip`/`zlib` 解压后再解码；无该头时行为不变。
+
+## BUG-16 `_import_curl` 对带转义引号的头值解析仍不健壮（BUG-03 残留）
+- 位置：`toolbox.py` `_import_curl()`（约 3665 行）`-(?:H|header)\s+(['\"]?)(.*?)\1(?=\s|$)`：非贪婪 `.*?` 遇到值内 `\"` 会提前截断（如 `curl -H "Authorization: Bearer a\"b"`）。多 `-d` 已修（body_parts），此项为剩余边缘场景。
+- 修复方案：引号组改为完整的单/双引号分支正则：`-(?:H|header)\s+(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|(\S+))`，并对引号内做 `\"` → `"` 还原。仅影响导入解析，不影响手填请求头路径。
+
+## BUG-17 `image_to_pdf.py` 递归模式下 GIF 动图取第一帧（待确认预期）
+- 位置：`image_to_pdf.py` 54/109 行：`Image.open` 后直接 convert('RGB') 保存，动图 GIF 只保留第一帧，多帧信息静默丢失。若产品定位"静态图合并"可接受，属预期说明问题。
+- 修复方案：文档/界面注明"动图取第一帧"；或在转换日志中加一条"GIF 为动图，已取第一帧"的提示（不改结果）。
+
+## BUG-18 `merge_images_to_pdf` 打开的图片对象未统一关闭（资源泄漏，低危）
+- 位置：`image_to_pdf.py` 107–125 行：图片列表在 `save()` 后未 `close()`/用 with 管理；长会话批量转换会累积文件句柄（Windows 下还可能锁定原文件句柄直到 GC）。
+- 修复方案：保存完成后 `finally` 中逐个 `img.close()`（Pillow 的 close 释放文件句柄，不影响已写入的 PDF）；convert_images_to_zip 分支已有 img.close()，对齐即可。
+
+## BUG-19 `tk._default_root = app` 使用私有属性（兼容性风险，前轮修复的遗留）
+- 位置：`toolbox.py` `ToolboxApp.__init__` / `main()`：直接赋值 `tk._default_root` 是 CPython 私有实现细节，Python 3.11+ 中 `_support_default_root` 机制未变但无公开契约，未来版本升级可能失效。
+- 修复方案（渐进，不影响现状）：根因修法是把加载窗改为 `Toplevel(master)` 挂在主窗下，或所有 `IntVar/StringVar/messagebox` 显式传 master；属重构项，建议保留现有 hack 的同时在该行加注释标注 Python 版本依赖，待有窗口期再做结构性修复。
+
+## 第二轮修复优先级建议
+| 编号 | 严重度 | 建议 |
+|------|--------|------|
+| BUG-08 | 中高（大文件 OOM） | 建议修 |
+| BUG-09 | 中（日志膨胀） | 建议修 |
+| BUG-10 | 中低 | 可修 |
+| BUG-16、BUG-15 | 中低 | 可一并修 |
+| BUG-13、BUG-14、BUG-17 | 低 | 视需求，需先确认预期 |
+| BUG-11、BUG-12、BUG-18 | 低 | 顺手修 |
+| BUG-19 | 代码健康 | 暂保留，加注释 |
+
+确认要修复的编号后我再动手。

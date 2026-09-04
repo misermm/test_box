@@ -105,24 +105,31 @@ def merge_images_to_pdf(image_paths, output_pdf_path):
     try:
         # 打开所有图片并转换为RGB模式
         images = []
-        for img_path in valid_images:
-            img = Image.open(img_path)
-            # 转换为RGB模式（确保兼容性）
-            if img.mode != 'RGB':
-                img = img.convert('RGB')
-            images.append(img)
-        
-        # 保存为PDF
-        first_image = images[0]
-        rest_images = images[1:]
-        
-        first_image.save(
-            output_pdf_path,
-            "PDF",
-            resolution=100.0,
-            save_all=True,
-            append_images=rest_images
-        )
+        try:  # BUG-18 修复：保存后统一关闭图片句柄，避免长会话累积文件句柄/锁定原文件
+            for img_path in valid_images:
+                img = Image.open(img_path)
+                # 转换为RGB模式（确保兼容性）
+                if img.mode != 'RGB':
+                    img = img.convert('RGB')
+                images.append(img)
+
+            # 保存为PDF
+            first_image = images[0]
+            rest_images = images[1:]
+
+            first_image.save(
+                output_pdf_path,
+                "PDF",
+                resolution=100.0,
+                save_all=True,
+                append_images=rest_images
+            )
+        finally:
+            for img in images:
+                try:
+                    img.close()
+                except Exception:
+                    pass
         
         print(f"成功创建PDF文件: {output_pdf_path}")
         print(f"包含 {len(valid_images)} 张图片")

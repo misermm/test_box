@@ -124,9 +124,11 @@ def merge_zip_files(zip_files, output_file):
         print("错误: 没有找到匹配的ZIP文件")
         return False
     
-    all_data = {}
-    
-    # 读取所有ZIP文件
+    # BUG-08 修复：只记录 (zip文件, 成员名, 部分号)，最后流式读取写出，
+    # 避免把所有分片整体载入内存导致大文件合并时内存翻倍
+    part_sources = {}  # part_num -> (zip_file, member_name)
+
+    # 定位所有分片所在位置
     for zip_file in sorted(expanded_files):
         print(f"读取: {zip_file}")
         with zipfile.ZipFile(zip_file, 'r') as zipf:
@@ -138,27 +140,31 @@ def merge_zip_files(zip_files, output_file):
                     part_str = name.split('.part')[-1]
                     try:
                         part_num = int(part_str)
-                        all_data[part_num] = zipf.read(name)
+                        part_sources[part_num] = (zip_file, name)
                         found_part = True
                     except ValueError:
                         continue
             if not found_part and names:
                 # 兼容旧版: 文件小于分片大小时生成的单文件ZIP（无.part后缀）
-                all_data[1] = zipf.read(names[0])
-    
-    if not all_data:
+                part_sources[1] = (zip_file, names[0])
+
+    if not part_sources:
         print("错误: 没有找到可合并的数据")
         return False
-    
-    # 按顺序合并
-    print(f"\n合并 {len(all_data)} 个部分...")
-    merged_data = b''
-    for part_num in sorted(all_data.keys()):
-        merged_data += all_data[part_num]
-    
-    # 保存合并后的文件
-    with open(output_file, 'wb') as f:
-        f.write(merged_data)
+
+    # 按顺序流式合并：逐分片解压、分块写入输出文件
+    print(f"\n合并 {len(part_sources)} 个部分...")
+    chunk_size = 1024 * 1024
+    with open(output_file, 'wb') as out:
+        for part_num in sorted(part_sources.keys()):
+            zip_file, member = part_sources[part_num]
+            with zipfile.ZipFile(zip_file, 'r') as zipf:
+                with zipf.open(member) as src:
+                    while True:
+                        chunk = src.read(chunk_size)
+                        if not chunk:
+                            break
+                        out.write(chunk)
     
     print(f"合并完成: {output_file}")
     print(f"文件大小: {get_file_size_mb(output_file):.2f} MB")

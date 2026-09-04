@@ -74,6 +74,25 @@ def send_request(method, url, headers=None, body=None, timeout=15):
         raise
     elapsed = time.time() - start
 
+    # BUG-15 修复：响应体带 gzip/deflate 压缩时先解压再解码，避免输出乱码
+    encoding = (resp_headers.get("Content-Encoding")
+                or resp_headers.get("content-encoding") or "").strip().lower()
+    if encoding == "gzip":
+        try:
+            import gzip as _gzip
+            raw = _gzip.decompress(raw)
+        except OSError:
+            pass  # 非法 gzip 数据保持原样
+    elif encoding == "deflate":
+        try:
+            import zlib as _zlib
+            raw = _zlib.decompress(raw)
+        except _zlib.error:
+            try:
+                raw = _zlib.decompress(raw, -_zlib.MAX_WBITS)
+            except _zlib.error:
+                pass  # 非法 deflate 数据保持原样
+
     charset = None
     ctype = resp_headers.get("Content-Type") or resp_headers.get("content-type") or ""
     if "charset=" in ctype:

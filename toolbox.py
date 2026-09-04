@@ -2601,7 +2601,10 @@ class ToolboxApp(tk.Tk):
                 return
             now = datetime.datetime.now()
             # 每分钟记录一次检查状态（不含秒，避免日志膨胀）
-            self._timer_log(f"检查: now={now:%H:%M} 提醒数={len(getattr(self, '_reminders', []) or [])}")
+            # BUG-09 修复：检查日志按分钟节流，避免每2秒一条导致日志无限膨胀
+            if f"{now:%Y-%m-%d %H:%M}" != getattr(self, "_timer_last_check_minute", None):
+                self._timer_last_check_minute = f"{now:%Y-%m-%d %H:%M}"
+                self._timer_log(f"检查: now={now:%H:%M} 提醒数={len(getattr(self, '_reminders', []) or [])}")
             if getattr(self, "_shutdown_timer", None) and self._shutdown_timer.get("active"):
                 if self._timer_match(now, self._shutdown_timer):
                     self._shutdown_timer["_last_fired"] = f"{now:%Y-%m-%d %H:%M}"
@@ -2627,11 +2630,15 @@ class ToolboxApp(tk.Tk):
         h, m = timer["hour"], timer["min"]
         fired = timer.get("_last_fired")
         cur_key = f"{now:%Y-%m-%d %H:%M}"
-        cur_minute_key = f"{now:%Y-%m-%d} {h:02d}:{m:02d}"
+        # BUG-10 修复：原 cur_minute_key 变量已不再需要（_last_fired 直接用分钟级 key 去重）
         if fired == cur_key:
             return False  # 本分钟已弹过
         target = now.replace(hour=h, minute=m, second=0, microsecond=0)
         delta = (now - target).total_seconds()
+        # BUG-10 修复：跨天时（delta 为负，如 23:5x 的提醒在已过午夜后检查）目标时刻回退到昨天，避免漏触发
+        if delta < 0:
+            target -= datetime.timedelta(days=1)
+            delta = (now - target).total_seconds()
         if not (0 <= delta <= 120):
             return False
         freq = timer["freq"]
@@ -3678,7 +3685,9 @@ class ToolboxApp(tk.Tk):
                 method = "POST"
             # 匹配 -H/--header 请求头（支持单双引号包裹）
             for hm in re.finditer(r'-(?:H|header)\s+([\'"]?)(.*?)\1(?=\s|$)', curl, re.IGNORECASE):
-                hval = hm.group(2).strip()
+                # BUG-16：沿用原 -H 正则的分组结构（group(2)=头值）；值内转义引号的边缘场景暂不处理，避免正则改动引入回归
+                hval = hm.group(2)
+                hval = hval.replace('\\"', '"').strip()
                 if hval:
                     headers.append(hval)
             # 提取 URL（第一个非 - 开头的参数，或 -o/-url 后的值）
