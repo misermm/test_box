@@ -317,18 +317,14 @@ class IdorRunner(threading.Thread):
             self._emit("log", {"msg": "[%d/%d] 接口: %s %s" % (i + 1, len(self.cases), req["method"], req["url"])})
             if self.mode == "horizontal":
                 self._emit("log", {"msg": "  → 基线请求：使用 账号B 的凭证 %s" % ("; ".join(extract_auth_headers(req.get("headers")).values()) or "-")})
-                # 基线：B 的 curl 原样请求（B 自己访问，应成功）
+                # 基线对照：只复用「开始基线测试」已保存的响应，越权测试不重发基线请求
                 b_resp = None
                 baseline_err = None
                 if req["url"] in self.stored_baseline:
-                    b_resp = self.stored_baseline[req["url"]]  # 复用基线测试已保存的响应，不重发
+                    b_resp = self.stored_baseline[req["url"]]
+                    self._emit("log", {"msg": "  → 基线对照：复用基线测试结果"})
                 else:
-                    try:
-                        b_resp = send_request(req["method"], req["url"], req.get("headers"),
-                                              req.get("body"), self.timeout)
-                    except Exception as e:
-                        # 基线失败不跳过：仍然用 A 的 Token 重放，判定说明里注明基线失败
-                        baseline_err = str(e)
+                    baseline_err = "未运行基线测试（无基线对照，仅 A Token 重放判定）"
                 self._emit("log", {"msg": "  → 越权重放：使用 账号A 的凭证 %s" % ("; ".join(self.token_a_headers.values()) or "-")})
                 # 越权：同一请求，凭证换成 A 的 Token 重放
                 test_req = {"method": req["method"], "url": req["url"],
@@ -344,7 +340,7 @@ class IdorRunner(threading.Thread):
                 except Exception as e:
                     authz, st, reason = None, "error", "越权请求失败: %s" % e
                 if baseline_err:
-                    reason = "B 基线请求失败(%s)，仅 A Token 重放结果: %s" % (baseline_err, reason)
+                    reason = "%s｜仅 A Token 重放结果: %s" % (baseline_err, reason)
                 results.append({**case, "status": st, "reason": reason,
                                 "baseline": b_resp, "baseline_err": baseline_err, "authz": authz,
                                 "token": "; ".join(self.token_a_headers.values()) or "-",
@@ -353,14 +349,10 @@ class IdorRunner(threading.Thread):
                 v_baseline = None
                 v_baseline_err = None
                 if req["url"] in self.stored_baseline:
-                    v_baseline = self.stored_baseline[req["url"]]  # 复用基线测试已保存的响应，不重发
-                elif self.admin_headers:
-                    self._emit("log", {"msg": "  → 管理员基线：使用 管理员凭证 %s 调用接口" % ("; ".join(self.admin_headers.values()) or "-")})
-                    try:
-                        v_baseline = send_request(req["method"], req["url"],
-                                                  req.get("headers"), req.get("body"), self.timeout)
-                    except Exception as e:
-                        v_baseline_err = str(e)
+                    v_baseline = self.stored_baseline[req["url"]]
+                    self._emit("log", {"msg": "  → 基线对照：复用基线测试结果"})
+                else:
+                    v_baseline_err = "未运行基线测试（无基线对照，仅普通账号重放判定）"
                 self._emit("log", {"msg": "  → 垂直越权：使用 普通账号 的凭证 %s 调用管理员接口" % ("; ".join(self.token_a_headers.values()) or "-")})
                 v_req = {"method": req["method"], "url": req["url"],
                          "headers": dict(req.get("headers") or {}), "body": req.get("body")}
@@ -375,7 +367,7 @@ class IdorRunner(threading.Thread):
                 except Exception as e:
                     authz, st, reason = None, "error", "请求失败: %s" % e
                 if v_baseline_err:
-                    reason = "管理员基线失败(%s)，仅普通账号重放结果: %s" % (v_baseline_err, reason)
+                    reason = "%s｜仅普通账号重放结果: %s" % (v_baseline_err, reason)
                 results.append({**case, "status": st, "reason": reason,
                                 "baseline": v_baseline, "baseline_err": v_baseline_err, "authz": authz,
                                 "token": "; ".join(self.token_a_headers.values()) or "-",
@@ -395,6 +387,17 @@ def build_page(app):
     app._label(c, "检测接口越权（仅供授权测试环境使用）。水平越权：A、B 各复制同一页面接口导入，"
               "工具用 A 的 Token 重放 B 的请求，成功访问 B 的数据即为越权；垂直越权：用低权限 A 的 Token 调管理员接口。").pack(anchor="w", pady=(0, 8))
 
+    # ---- 测试类型选择（最顶部，先选类型再测试） ----
+    typ = tk.LabelFrame(c, text="测试类型（请先选择）", bg="#f5f6fa",
+                        font=("Microsoft YaHei UI", 10, "bold"))
+    typ.pack(fill="x", pady=(0, 6))
+    tr = app._row(typ)
+    app._authz_type_var = tk.StringVar(value="水平越权（换Token重放）")
+    app._authz_type_combo = ttk.Combobox(tr, textvariable=app._authz_type_var, state="readonly", width=22,
+                 values=["水平越权（换Token重放）", "垂直越权（管理员接口）"])
+    app._authz_type_combo.pack(side="left", padx=(4, 10))
+    app._authz_type_combo.bind("<<ComboboxSelected>>", lambda e: _switch_mode_ui(app))
+
     # ---- 账号区 ----
     # 顶层垂直 PanedWindow：账号凭证区（含接口导入输入框）可上下拖动调整高度
     app._authz_vpaned = ttk.Panedwindow(c, orient="vertical")
@@ -404,6 +407,10 @@ def build_page(app):
     app._authz_vpaned.add(acct, weight=2)
     app._authz_acct_a_var = tk.StringVar()
     app._authz_acct_b_var = tk.StringVar()
+    # 账号凭证按测试类型独立保存：切换类型时换存，互不覆盖
+    app._authz_cred_store = {"horizontal": {"a": "", "b": "", "curl": ""},
+                             "vertical": {"a": "", "b": "", "curl": ""}}
+    app._authz_cred_cur = "horizontal"
     r1 = app._row(acct)
     app._authz_lbl_a = app._label(r1, "账号A Token(自动提取):")
     app._authz_lbl_a.pack(side="left")
@@ -428,7 +435,7 @@ def build_page(app):
     def _sync_lists(delta_px):
         # 输入框高度变化时联动：把分隔条跟随账号区所需高度移动，
         # 增大输入框→下方列表等量缩小，反之亦然；总高度不变。
-        # 下限取账号区请求高度（含「清空接口」按钮行），保证按钮始终有空间不被挤没。
+        # 下限取账号区请求高度（含「清空接口」等按钮行），保证按钮始终有空间不被挤没。
         try:
             def _apply():
                 try:
@@ -445,7 +452,8 @@ def build_page(app):
             pass
     make_edge_resizable(app._authz_curl_text, on_resize=_sync_lists)  # 上下边缘拖动调整输入框高度，下边缘联动下方列表
     r3 = app._row(acct)
-    tk.Button(r3, text="清空接口", command=lambda: _clear_cases(app), width=10).pack(side="left", padx=4)
+    tk.Button(r3, text="清空用例", command=lambda: _clear_cases(app), width=10).pack(side="left", padx=4)
+    tk.Button(r3, text="清空接口", command=lambda: _clear_interfaces(app), width=10).pack(side="left", padx=4)
     app._label(r3, "用法：A、B 各登录后打开同一页面，各自 F12 复制接口粘贴到上面，再点对应账号行的导入按钮").pack(side="left", padx=(8, 0))
     app._authz_case_count = app._label(r3, "A接口: 0 ｜ B用例: 0")
     app._authz_case_count.pack(side="right", padx=8)
@@ -455,10 +463,10 @@ def build_page(app):
     app._authz_vpaned.add(app._authz_hpaned, weight=3)
     case_paned = ttk.Panedwindow(app._authz_hpaned, orient="horizontal")
     app._authz_hpaned.add(case_paned, weight=3)
-    base_lst = tk.LabelFrame(case_paned, text="基线测试（B/管理员原样请求的基线用例）",
+    base_lst = tk.LabelFrame(case_paned, text="基线用例",
                         bg="#f5f6fa", font=("Microsoft YaHei UI", 10, "bold"))
     case_paned.add(base_lst, weight=3)
-    lst = tk.LabelFrame(case_paned, text="越权用例（来源：账号B的接口；点击选择，Ctrl/Shift 多选；不选则测全部）",
+    lst = tk.LabelFrame(case_paned, text="越权用例",
                         bg="#f5f6fa", font=("Microsoft YaHei UI", 10, "bold"))
     case_paned.add(lst, weight=3)
     # 固定行高，避免行内文字上下被遮挡只显示一半
@@ -504,12 +512,6 @@ def build_page(app):
                         font=("Microsoft YaHei UI", 10, "bold"))
     run.pack(fill="x", pady=(0, 6))
     rr = app._row(run)
-    app._label(rr, "测试类型:").pack(side="left")
-    app._authz_type_var = tk.StringVar(value="水平越权（换Token重放）")
-    app._authz_type_combo = ttk.Combobox(rr, textvariable=app._authz_type_var, state="readonly", width=22,
-                 values=["水平越权（换Token重放）", "垂直越权（管理员接口）"])
-    app._authz_type_combo.pack(side="left", padx=(4, 10))
-    app._authz_type_combo.bind("<<ComboboxSelected>>", lambda e: _switch_mode_ui(app))
     app._label(rr, "超时(秒):").pack(side="left")
     app._authz_timeout_var = tk.StringVar(value="15")
     tk.Entry(rr, textvariable=app._authz_timeout_var, width=5).pack(side="left", padx=(4, 10))
@@ -531,7 +533,7 @@ def build_page(app):
     app._authz_hpaned.add(res_paned, weight=2)
     base_res = tk.LabelFrame(res_paned, text="基线测试结果", bg="#f5f6fa",
                         font=("Microsoft YaHei UI", 10, "bold"))
-    res_paned.add(base_res, weight=2)
+    res_paned.add(base_res, weight=3)  # 与用例区 3/3 一致，分割线上下对齐
     res = tk.LabelFrame(res_paned, text="越权测试结果", bg="#f5f6fa",
                         font=("Microsoft YaHei UI", 10, "bold"))
     res_paned.add(res, weight=3)
@@ -567,6 +569,19 @@ def build_page(app):
     tk.Button(db, text="查看详情", command=lambda: _show_detail(app), width=10).pack(pady=2)
     tk.Button(db, text="导出报告", command=lambda: _export_report(app), width=10).pack(pady=2)
 
+    # 渲染后强制把用例区与结果区的分割线都设为正中间，保证上下对齐
+    def _align_sashes():
+        try:
+            w = case_paned.winfo_width()
+            if w > 10:
+                case_paned.sashpos(0, w // 2)
+                res_paned.sashpos(0, w // 2)
+            else:
+                app.after(100, _align_sashes)
+        except Exception:
+            pass
+    app.after(200, _align_sashes)
+
 
 # ---------- 交互处理 ----------
 
@@ -594,67 +609,80 @@ def _edit_payload(app, kind):
         return
     idx = tree.index(sel[0])
     vertical = app._authz_type_var.get().startswith("垂直越权")
+    cur_m = "vertical" if vertical else "horizontal"
     if kind == "base":
-        if idx >= len(app._authz_baseline_cases):
+        pool = _mode_baseline_cases(app)
+        if idx >= len(pool):
             return
-        req = app._authz_baseline_cases[idx]
+        req = pool[idx]
     elif kind == "case":
-        pool = app._authz_a_cases if vertical else [c["req"] for c in app._authz_cases]
+        pool = [r for r in app._authz_a_cases if r.get("_mode", cur_m) == cur_m] if vertical \
+            else [c["req"] for c in app._authz_cases if c.get("mode", cur_m) == cur_m]
         if idx >= len(pool):
             return
         req = pool[idx]
     else:
-        if idx >= len(app._authz_results):
+        pool = _mode_results(app)
+        if idx >= len(pool):
             return
-        req = app._authz_results[idx].get("req")
+        req = pool[idx].get("req")
     if not req:
         return
     win = tk.Toplevel(app)
     win.title("编辑 Payload")
     win.geometry("760x520")
     app._label(win, "接口: %s %s\n（保存后下次测试即使用新的 payload 发送）" % (req["method"], req["url"])).pack(anchor="w", padx=8, pady=(8, 2))
-    txt = tk.Text(win, wrap="none", font=("Consolas", 10), bg="#1e1e1e", fg="#d4d4d4", insertbackground="#d4d4d4")
+    # 按钮区先固定在窗口底部，文本框再填充剩余空间，避免小窗口时按钮被挤出可视区
+    btns = tk.Frame(win)
+    btns.pack(side="bottom", fill="x", padx=8, pady=(0, 8))
+    txt = tk.Text(win, wrap="word", font=("Consolas", 10), bg="#1e1e1e", fg="#d4d4d4", insertbackground="#d4d4d4")
     txt.pack(fill="both", expand=True, padx=8, pady=4)
     txt.insert("1.0", req.get("body") or "")
-    btns = tk.Frame(win)
-    btns.pack(fill="x", padx=8, pady=(0, 8))
     def _save():
         req["body"] = txt.get("1.0", "end-1c")
         vals = list(tree.item(sel[0], "values"))
-        vals[3 if kind == "case" else 4] = _payload_summary(req["body"])
+        vals[4 if kind == "result" else 3] = _payload_summary(req["body"])
         tree.item(sel[0], values=vals)
         win.destroy()
         app._notify("Payload 已保存，下次测试生效")
     tk.Button(btns, text="保存", command=_save, width=10,
-              bg="#27ae60", fg="white", font=("Microsoft YaHei UI", 10, "bold")).pack(side="left", padx=(0, 6))
-    tk.Button(btns, text="取消", command=win.destroy, width=10).pack(side="left")
+              bg="#27ae60", fg="white", font=("Microsoft YaHei UI", 10, "bold")).pack(side="right", padx=(6, 0))
+    tk.Button(btns, text="取消", command=win.destroy, width=10).pack(side="right")
 
 
 def _switch_mode_ui(app):
     """按测试类型切换账号区文案：水平=A/B；垂直=普通账号/管理员账号。"""
     vertical = app._authz_type_var.get().startswith("垂直越权")
+    new_m = "vertical" if vertical else "horizontal"
+    # 凭证区按模式独立：先保存当前模式的 Token 与 curl 内容，再载入目标模式的
+    store = app._authz_cred_store
+    cur = store.setdefault(app._authz_cred_cur, {"a": "", "b": "", "curl": ""})
+    cur["a"] = app._authz_acct_a_var.get()
+    cur["b"] = app._authz_acct_b_var.get()
+    if getattr(app, "_authz_curl_text", None):
+        cur["curl"] = app._authz_curl_text.get("1.0", "end-1c")
+    tgt = store.setdefault(new_m, {"a": "", "b": "", "curl": ""})
+    app._authz_cred_cur = new_m
+    app._authz_acct_a_var.set(tgt.get("a", ""))
+    app._authz_acct_b_var.set(tgt.get("b", ""))
+    if getattr(app, "_authz_curl_text", None):
+        app._authz_curl_text.delete("1.0", "end")
+        if tgt.get("curl"):
+            app._authz_curl_text.insert("1.0", tgt["curl"])
     if vertical:
-        app._authz_lbl_a.config(text="普通账号 Token(必填,重放凭证):")
+        app._authz_lbl_a.config(text="普通账号:")
         app._authz_btn_a.config(text="导入(普通账号)")
-        app._authz_lbl_b.config(text="管理员接口curl(必填,待测目标;Token可作基线):")
+        app._authz_lbl_b.config(text="管理员账号:")
         app._authz_btn_b.config(text="导入(管理员账号)")
     else:
         app._authz_lbl_a.config(text="账号A Token(自动提取):")
         app._authz_btn_a.config(text="导入(账号A)")
         app._authz_lbl_b.config(text="账号B Token(自动提取):")
         app._authz_btn_b.config(text="导入(账号B)")
-    # 切换测试类型：清空两种模式的用例与结果，避免旧类型数据残留
-    app._authz_cases.clear()
-    app._authz_a_cases.clear()
-    app._authz_baseline_cases.clear()
-    app._authz_results.clear()
-    app._authz_baseline_results.clear()
-    for w in (app._authz_tree, app._authz_base_tree, app._authz_res_tree, app._authz_base_res_tree):
-        w.delete(*w.get_children())
-    app._authz_case_count.config(text="A接口: 0 ｜ B用例: 0")
-    app._authz_progress.config(text="")
-    app._notify("已切换测试类型，已清空之前的用例与结果")
+    # 切换测试类型：保留两种模式的用例与结果，仅按当前模式过滤显示
     _refresh_case_tree(app)
+    _refresh_result_trees(app)
+    app._notify("已切换测试类型，两种模式的用例与测试数据独立保留")
 
 
 def _get_headers_from_token(token):
@@ -712,21 +740,25 @@ def _import_curls(app, which="A"):
             # 垂直模式下 B=管理员：curl 登记为待测管理员接口（URL/body 来源）
             vertical_now = app._authz_type_var.get().startswith("垂直越权")
             if vertical_now:
+                req["_mode"] = "vertical"
                 app._authz_a_cases.append(req)
             else:
-                app._authz_cases.append({"req": req, "ids": find_resource_ids(req)})
+                app._authz_cases.append({"req": req, "ids": find_resource_ids(req), "mode": "horizontal"})
             ids = find_resource_ids(req)
             mark = "✔" if ids else "-"
             acct = "管理员接口" if vertical_now else "B"
             app._authz_tree.insert("", "end", values=(acct, req["method"], req["url"], _payload_summary(req.get("body")), mark))
-            # 基线用例：同一条 curl 也登记到「基线测试」列表（原样请求作为对照）
-            app._authz_baseline_cases.append(dict(req))
+            # 基线用例：同一条 curl 也登记到「基线测试」列表（原样请求作为对照），按模式独立
+            base_req = dict(req)
+            base_req["_mode"] = "vertical" if vertical_now else "horizontal"
+            app._authz_baseline_cases.append(base_req)
             b_acct = "管理员(基线)" if vertical_now else "B(基线)"
             app._authz_base_tree.insert("", "end", values=(b_acct, req["method"], req["url"], _payload_summary(req.get("body")), mark))
         else:
             # 水平：A 的 curl 登记备用（垂直模式旧逻辑保留）；
             # 垂直模式下 A=普通账号：只提取 Token 作为重放凭证，curl 不登记为用例
             if not app._authz_type_var.get().startswith("垂直越权"):
+                req["_mode"] = "horizontal"
                 app._authz_a_cases.append(req)
     # Token 自动提取（已有值不覆盖，可手动改）
     var = app._authz_acct_a_var if which == "A" else app._authz_acct_b_var
@@ -751,14 +783,61 @@ def _import_curls(app, which="A"):
         app._notify(msg)
 
 
+def _cur_mode(app):
+    return "vertical" if app._authz_type_var.get().startswith("垂直越权") else "horizontal"
+
+
+def _mode_baseline_cases(app):
+    """当前模式下的基线用例（水平/垂直独立）。"""
+    m = _cur_mode(app)
+    return [r for r in app._authz_baseline_cases if r.get("_mode", m) == m]
+
+
+def _mode_results(app):
+    """当前模式下的越权测试结果。"""
+    m = _cur_mode(app)
+    return [r for r in app._authz_results if r.get("mode", m) == m]
+
+
+def _mode_baseline_results(app):
+    """当前模式下的基线测试结果。"""
+    m = _cur_mode(app)
+    return [r for r in app._authz_baseline_results if r.get("mode", m) == m]
+
+
+def _refresh_result_trees(app):
+    """按当前模式重建两个结果列表显示（数据保留，仅过滤显示）。"""
+    vertical = _cur_mode(app) == "vertical"
+    res = app._authz_res_tree
+    res.delete(*res.get_children())
+    for r in _mode_results(app):
+        b = r.get("baseline")
+        b_txt = ("HTTP %s" % b["status"]) if b and b.get("status") else ("失败" if r.get("baseline_err") or (r.get("baseline") is None and r.get("authz")) else "-")
+        acct_txt = "普通账号(重放)" if vertical else "A(重放)"
+        res.insert("", "end", values=(
+            STATUS_TEXT.get(r["status"], r["status"]),
+            r["req"]["url"], acct_txt, r.get("token", "-"),
+            _payload_summary(r["req"].get("body")), b_txt, r["reason"]))
+    bres = app._authz_base_res_tree
+    bres.delete(*bres.get_children())
+    for rec in _mode_baseline_results(app):
+        resp = rec.get("baseline")
+        b_status = ("HTTP %s" % resp["status"]) if resp else "失败"
+        b_acct = "管理员(基线)" if vertical else "B(基线)"
+        bres.insert("", "end", values=(
+            b_status, rec["req"]["url"], b_acct, rec.get("token", "-"),
+            _payload_summary(rec["req"].get("body")),
+            b_status, rec.get("reason", "-")))
+
+
 def _refresh_case_tree(app):
     """按当前模式刷新用例列表：水平→B 的用例；垂直→管理员接口。基线用例树同步刷新。"""
     tree = app._authz_tree
     tree.delete(*tree.get_children())
     btree = app._authz_base_tree
     btree.delete(*btree.get_children())
-    vertical = app._authz_type_var.get().startswith("垂直越权")
-    for req in app._authz_baseline_cases:
+    vertical = _cur_mode(app) == "vertical"
+    for req in _mode_baseline_cases(app):
         ids = find_resource_ids(req)
         mark = "✔" if ids else "-"
         b_acct = "管理员(基线)" if vertical else "B(基线)"
@@ -766,15 +845,31 @@ def _refresh_case_tree(app):
     vertical = app._authz_type_var.get().startswith("垂直越权")
     if vertical:
         for req in app._authz_a_cases:
+            if req.get("_mode", "vertical") != "vertical":
+                continue
             ids = find_resource_ids(req)
             mark = "✔" if ids else "-"
             tree.insert("", "end", values=("管理员接口", req["method"], req["url"], _payload_summary(req.get("body")), mark))
     else:
         for c in app._authz_cases:
+            if c.get("mode", "horizontal") != "horizontal":
+                continue
             req = c["req"]
             ids = c.get("ids") or find_resource_ids(req)
             mark = "✔" if ids else "-"
             tree.insert("", "end", values=("B", req["method"], req["url"], _payload_summary(req.get("body")), mark))
+
+
+def _clear_interfaces(app):
+    """清空接口导入数据与账号凭证：curl 输入框、A/B Token 输入框（含按模式存储）。"""
+    app._authz_curl_text.delete("1.0", "end")
+    app._authz_acct_a_var.set("")
+    app._authz_acct_b_var.set("")
+    store = getattr(app, "_authz_cred_store", None)
+    if store is not None:
+        for m in ("horizontal", "vertical"):
+            store[m] = {"a": "", "b": "", "curl": ""}
+    app._notify("已清空接口导入数据与账号凭证")
 
 
 def _clear_cases(app):
@@ -793,22 +888,25 @@ def _clear_results(app):
     for item in app._authz_res_tree.get_children():
         app._authz_res_tree.delete(item)
     app._authz_progress.config(text="")
-    app._authz_baseline_results.clear()
+    cur_m = _cur_mode(app)
+    app._authz_baseline_results[:] = [r for r in app._authz_baseline_results if r.get("mode", cur_m) != cur_m]
     for item in app._authz_base_res_tree.get_children():
         app._authz_base_res_tree.delete(item)
 
 
 def _selected_cases(app):
-    vertical = app._authz_type_var.get().startswith("垂直越权")
+    vertical = _cur_mode(app) == "vertical"
+    if vertical:
+        pool = [r for r in app._authz_a_cases if r.get("_mode", "vertical") == "vertical"]
+    else:
+        pool = [c for c in app._authz_cases if c.get("mode", "horizontal") == "horizontal"]
     sel = app._authz_tree.selection()
     if sel:
         idxs = [app._authz_tree.index(s) for s in sel]
-        if vertical:
-            return [{"req": app._authz_a_cases[i]} for i in idxs if i < len(app._authz_a_cases)]
-        return [app._authz_cases[i] for i in idxs if i < len(app._authz_cases)]
+        return [{"req": pool[i]["req"]} if isinstance(pool[i], dict) and "req" in pool[i] else {"req": pool[i]} for i in idxs if i < len(pool)]
     if vertical:
-        return [{"req": r} for r in app._authz_a_cases]
-    return list(app._authz_cases)
+        return [{"req": r} for r in pool]
+    return [dict(c) for c in pool]
 
 
 def _start_baseline_test(app):
@@ -817,7 +915,7 @@ def _start_baseline_test(app):
     if runner and runner.is_alive():
         app._notify("测试正在进行中")
         return
-    cases = list(app._authz_baseline_cases)
+    cases = _mode_baseline_cases(app)
     if not cases:
         app._notify("请先导入接口生成基线用例")
         return
@@ -850,6 +948,7 @@ def _start_baseline_test(app):
             q.put(("b_progress", {"index": i + 1, "total": len(cases), "record": rec, "b_acct": b_acct}))
         q.put(("b_done", {"total": len(cases)}))
 
+    app._notify("【基线测试】开始，共 %d 条用例（原样发送，不换凭证）" % len(cases))
     t = threading.Thread(target=worker, daemon=True)
     app._authz_baseline_thread = t
     t.start()
@@ -874,7 +973,7 @@ def _start_test(app):
     vertical = app._authz_type_var.get().startswith("垂直越权")
 
     if vertical:
-        cases = [{"req": req} for req in app._authz_a_cases]
+        cases = [{"req": req} for req in app._authz_a_cases if req.get("_mode", "vertical") == "vertical"]
         if not cases:
             app._notify("垂直越权模式请先「导入(管理员账号)」管理员接口 curl")
             return
@@ -893,8 +992,9 @@ def _start_test(app):
         timeout = float(app._authz_timeout_var.get())
     except ValueError:
         timeout = 15.0
-    # 只清越权结果，基线结果独立保留（各自控制各自的）
-    app._authz_results.clear()
+    # 只清当前模式的越权结果，基线结果与另一模式结果独立保留
+    cur_m0 = _cur_mode(app)
+    app._authz_results[:] = [r for r in app._authz_results if r.get("mode", cur_m0) != cur_m0]
     for item in app._authz_res_tree.get_children():
         app._authz_res_tree.delete(item)
     app._authz_progress.config(text="")
@@ -906,9 +1006,13 @@ def _start_test(app):
         admin_headers = _get_headers_from_token(token_b_val)  # 管理员 Token 作为可选基线
     # 已保存的基线响应按 URL 复用，越权测试不再重发基线请求
     stored = {}
+    cur_m = "vertical" if vertical else "horizontal"
     for r in app._authz_baseline_results:
+        if r.get("mode", cur_m) != cur_m:
+            continue
         if r.get("baseline") and r["req"].get("url") not in stored:
             stored[r["req"]["url"]] = r["baseline"]
+    app._notify("【越权测试】开始，共 %d 条用例（使用 A 的 Token 重放，基线仅复用已存结果）" % len(cases))
     app._authz_runner = IdorRunner(cases, token_a_headers, q,
                                    timeout=timeout,
                                    mode="vertical" if vertical else "horizontal",
@@ -1005,9 +1109,10 @@ def _show_detail(app):
         app._notify("请先选择一条结果")
         return
     idx = app._authz_res_tree.index(sel[0])
-    if idx >= len(app._authz_results):
+    pool = _mode_results(app)
+    if idx >= len(pool):
         return
-    r = app._authz_results[idx]
+    r = pool[idx]
 
     win = tk.Toplevel(app)
     win.title("越权测试详情")
@@ -1047,7 +1152,8 @@ def _fmt_resp(resp):
 def _export_report(app):
     import datetime
     from tkinter import filedialog
-    if not app._authz_results:
+    cur_results = _mode_results(app)
+    if not cur_results:
         app._notify("没有测试结果可导出")
         return
     path = filedialog.asksaveasfilename(
@@ -1080,7 +1186,7 @@ def _export_report(app):
         ls.append("```")
         return ls
 
-    for r in app._authz_results:
+    for r in cur_results:
         req = r["req"]
         lines.append("## %s %s" % (req["method"], req["url"]))
         lines.append("- 状态: %s" % STATUS_TEXT.get(r["status"], r["status"]))
